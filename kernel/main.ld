@@ -3,6 +3,7 @@ ENTRY(entry)
 
 SECTIONS
 {
+    PROVIDE(kernel_start = .);
     .text :
     {
         *(.text);

@@ -1,6 +1,14 @@
-use core::{alloc::GlobalAlloc, cell::RefCell, f64::math::ceil, ptr::null_mut};
+use core::{
+    alloc::{GlobalAlloc, Layout},
+    cell::RefCell,
+    f64::math::ceil,
+    ptr::null_mut,
+};
 
-use crate::constants::{KERNEL_END, MEM_SIZE, PAGE_SIZE};
+use crate::{
+    constants::{KERNEL_END, MEM_SIZE, PAGE_SIZE},
+    error::Result,
+};
 
 pub struct Allocator {
     bitmap: RefCell<[bool; MEM_SIZE / PAGE_SIZE]>,
@@ -36,6 +44,9 @@ fn find_contiguous(num_pages: usize) -> Option<usize> {
     if start == -1 {
         None
     } else {
+        if count != num_pages {
+            return None;
+        }
         for i in start as usize..(start as usize + num_pages) {
             allocator[i] = true;
         }
@@ -75,3 +86,15 @@ unsafe impl GlobalAlloc for Allocator {
 // THE OS runs on one CPU
 unsafe impl Send for Allocator {}
 unsafe impl Sync for Allocator {}
+
+pub fn allocate(num_pages: usize) -> Result<usize> {
+    unsafe {
+        let layout = Layout::from_size_align_unchecked(4096 * num_pages, 4096);
+        let ptr = ALLOCATOR.alloc_zeroed(layout);
+        if ptr == null_mut() {
+            Err(crate::error::Error::NoFreePage)
+        } else {
+            Ok(ptr.addr())
+        }
+    }
+}

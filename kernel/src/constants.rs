@@ -1,3 +1,39 @@
 pub const PAGE_SIZE: usize = 4096;
 pub const MEM_SIZE: usize = 0x80000000;
+
 pub static mut KERNEL_END: usize = 0;
+pub static mut END_OF_KERNEL_TEXT: usize = 0; // re-assign later in main::_start
+pub static mut TRAMPOLINE_CODE_ADDRESS: usize = 0; // // re-assign later in main::_start
+pub static mut KERNEL_START: usize = 0;
+
+pub const MAX_VA: usize = 0x800000000000;
+pub const VALID_BIT: usize = 1;
+
+#[allow(non_upper_case_globals)]
+pub const Sv48: usize = 9 << 60;
+
+// Memory-Mapped Register Address
+pub const PLIC: usize = 0xc000000;
+pub const PLIC_SIZE: usize = 0x600000;
+pub const VIRTIO_MMIO_DISK: usize = 0x10001000;
+pub const VIRTIO_MMIO_DISK_SIZE: usize = 0x1000;
+
+// UART
+pub const UART0: usize = 0x10000000;
+pub const UART_TEXT_BUFFER_SIZE: usize = 1000;
+
+pub static mut KERNEL_PAGE_TABLE: usize = 0;
+
+// Page Permissions
+pub const READ_WRITE: usize = 0b0110;
+pub const READ_ONLY: usize = 0b10;
+pub const EXECUTE_ONLY: usize = 0b1000;
+pub const READ_EXECUTE: usize = 0b1010;
+pub const READ_WRITE_EXECUTE: usize = 0b1110;
+
+pub const MAXIMUM_PROCESS: usize = 64;
+
+pub const TRAMPOLINE: usize = MAX_VA - PAGE_SIZE;
+pub const TRAP_STACK: usize = TRAMPOLINE - PAGE_SIZE;
+
+pub const RAM_STOP: usize = 0x80000000 + 2_14_74_83_648;

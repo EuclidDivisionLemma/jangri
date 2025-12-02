@@ -6,6 +6,7 @@ edition = "2024"
 
 
 [dependencies]
+hashbrown = "0.16.1"
 riscv = "0.15.0"
 
 [profile.release]
