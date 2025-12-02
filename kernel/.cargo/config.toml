@@ -1,0 +1,9 @@
+[build]
+target = "riscv64imac-unknown-none-elf"
+
+[target.'cfg(all(target_os = "none"))']
+runner = "qemu-system-riscv64 -machine virt -bios default -m 2048 -kernel"
+
+[unstable]
+build-std = ["core", "compiler_builtins", "alloc"]
+build-std-features = ["compiler-builtins-mem"]

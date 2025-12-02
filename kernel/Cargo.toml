@@ -1,0 +1,15 @@
+[package]
+name = "jangri"
+version = "0.0.1"
+edition = "2024"
+
+
+
+[dependencies]
+riscv = "0.15.0"
+
+[profile.release]
+panic = "abort"
+
+[profile.dev]
+panic = "abort"
