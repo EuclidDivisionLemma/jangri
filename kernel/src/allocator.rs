@@ -11,25 +11,49 @@ pub static ALLOCATOR: Allocator = Allocator {
     bitmap: RefCell::new([false; MEM_SIZE / PAGE_SIZE]),
 };
 
+fn find_contiguous(num_pages: usize) -> Option<usize> {
+    let mut allocator = ALLOCATOR.bitmap.borrow_mut();
+
+    let mut count = 0;
+    let mut start: isize = -1;
+
+    for i in 0..allocator.len() {
+        if count < num_pages {
+            if allocator[i] == false {
+                if count == 0 {
+                    start = i as isize;
+                }
+                count += 1;
+            } else {
+                start = -1;
+                count = 0;
+            }
+        } else {
+            break;
+        }
+    }
+
+    if start == -1 {
+        None
+    } else {
+        for i in start as usize..(start as usize + num_pages) {
+            allocator[i] = true;
+        }
+        Some(start as usize)
+    }
+}
+
 unsafe impl GlobalAlloc for Allocator {
     unsafe fn alloc(&self, layout: core::alloc::Layout) -> *mut u8 {
         let mut num_pages = 1;
         if layout.size() > PAGE_SIZE {
             num_pages = ceil(layout.size() as f64 / PAGE_SIZE as f64) as usize;
         }
-        let mut head = None;
 
-        for _ in 0..num_pages {
-            for j in 0..self.bitmap.borrow().len() {
-                if (*self.bitmap.borrow())[j] == false {
-                    (*self.bitmap.borrow_mut())[j] = true;
-                    if let None = head {
-                        head = Some((unsafe { KERNEL_END } + (j * PAGE_SIZE)) as *mut u8);
-                    }
-                }
-            }
+        match find_contiguous(num_pages) {
+            Some(start) => (unsafe { KERNEL_END } + (start * PAGE_SIZE)) as *mut u8,
+            None => null_mut(),
         }
-        head.unwrap_or(null_mut())
     }
 
     unsafe fn dealloc(&self, ptr: *mut u8, layout: core::alloc::Layout) {
