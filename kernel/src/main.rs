@@ -3,21 +3,26 @@
 #![feature(core_float_math)]
 #![allow(static_mut_refs)]
 
-use core::arch::global_asm;
+use core::arch::{asm, global_asm};
 
 use crate::{
     constants::{END_OF_KERNEL_TEXT, KERNEL_END, KERNEL_PAGE_TABLE, KERNEL_START},
+    process::intialise_processes,
     syscall::stdout,
-    vm::initialise_kernel_page_table,
+    traps::initialise_traps,
+    vm::{enable_paging, initialise_kernel_page_table},
 };
 
 mod allocator;
 mod constants;
 mod error;
 mod panic;
+mod process;
 mod syscall;
 mod traps;
 mod vm;
+
+extern crate alloc;
 
 global_asm!(include_str!("entry.s"));
 
@@ -36,16 +41,16 @@ fn intialise_constants() {
 #[unsafe(no_mangle)]
 fn main() -> ! {
     intialise_constants();
+
     if let Err(e) = initialise_kernel_page_table() {
         e.log(true);
     }
-    unsafe {
-        riscv::register::satp::set(
-            riscv::register::satp::Mode::Sv48,
-            0,
-            KERNEL_PAGE_TABLE >> 12,
-        );
-    }
+
+    enable_paging();
+    initialise_traps();
+
+    intialise_processes();
     stdout("Jangri v0.0.1\n");
+
     loop {}
 }

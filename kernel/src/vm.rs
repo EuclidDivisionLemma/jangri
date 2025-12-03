@@ -2,14 +2,14 @@ use crate::{
     allocator::allocate,
     constants::{
         END_OF_KERNEL_TEXT, KERNEL_PAGE_TABLE, KERNEL_START, MAX_VA, MAXIMUM_PROCESS, PAGE_SIZE,
-        PLIC, PLIC_SIZE, RAM_STOP, READ_EXECUTE, READ_WRITE, TRAMPOLINE, UART0, VALID_BIT,
-        VIRTIO_MMIO_DISK, VIRTIO_MMIO_DISK_SIZE,
+        PLIC, PLIC_SIZE, RAM_STOP, READ_EXECUTE, READ_WRITE, TRAMPOLINE, TRAP_STACK, UART0,
+        VALID_BIT, VIRTIO_MMIO_DISK, VIRTIO_MMIO_DISK_SIZE,
     },
     error::{self, Result},
     syscall::stdout,
 };
-use core::ptr::read_volatile;
 use core::ptr::write_volatile;
+use core::{arch::asm, ptr::read_volatile};
 
 macro_rules! extract_index_into_level {
     ($level: expr, $virtual_address: expr) => {
@@ -27,6 +27,17 @@ macro_rules! physical_address_to_page_table_entry {
     ($physical_address: expr) => {
         ($physical_address >> 12) << 10
     };
+}
+
+pub fn enable_paging() {
+    unsafe {
+        riscv::register::satp::set(
+            riscv::register::satp::Mode::Sv48,
+            0,
+            KERNEL_PAGE_TABLE >> 12,
+        );
+        asm!("sfence.vma");
+    }
 }
 
 pub fn initialise_kernel_page_table() -> Result<()> {
@@ -76,6 +87,16 @@ pub fn initialise_kernel_page_table() -> Result<()> {
         //     PAGE_SIZE,
         //     READ_EXECUTE,
         // )?;
+
+        let trap_stack = allocate(1)?;
+
+        map(
+            KERNEL_PAGE_TABLE,
+            TRAP_STACK,
+            trap_stack,
+            PAGE_SIZE,
+            READ_WRITE,
+        )?;
     }
 
     Ok(())

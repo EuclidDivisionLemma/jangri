@@ -6,6 +6,7 @@ SECTIONS
     PROVIDE(kernel_start = .);
     .text :
     {
+        *(.text.entry);
         *(.text);
         *(.text.*);
         . = ALIGN(4096);

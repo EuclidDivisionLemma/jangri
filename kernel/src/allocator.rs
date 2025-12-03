@@ -6,10 +6,11 @@ use core::{
 };
 
 use crate::{
-    constants::{KERNEL_END, MEM_SIZE, PAGE_SIZE},
+    constants::{KERNEL_END, KERNEL_START, MEM_SIZE, PAGE_SIZE},
     error::Result,
 };
 
+#[repr(C)]
 pub struct Allocator {
     bitmap: RefCell<[bool; MEM_SIZE / PAGE_SIZE]>,
 }
@@ -62,7 +63,15 @@ unsafe impl GlobalAlloc for Allocator {
         }
 
         match find_contiguous(num_pages) {
-            Some(start) => (unsafe { KERNEL_END } + (start * PAGE_SIZE)) as *mut u8,
+            Some(start) => {
+                let address = (unsafe { KERNEL_END } + (start * PAGE_SIZE)) as *mut u8;
+
+                if address.addr() + num_pages * PAGE_SIZE > (unsafe { KERNEL_START } + MEM_SIZE) {
+                    null_mut()
+                } else {
+                    address
+                }
+            }
             None => null_mut(),
         }
     }

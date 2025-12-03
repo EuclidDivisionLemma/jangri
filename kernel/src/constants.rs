@@ -6,7 +6,7 @@ pub static mut END_OF_KERNEL_TEXT: usize = 0; // re-assign later in main::_start
 pub static mut TRAMPOLINE_CODE_ADDRESS: usize = 0; // // re-assign later in main::_start
 pub static mut KERNEL_START: usize = 0;
 
-pub const MAX_VA: usize = 0x800000000000;
+pub const MAX_VA: usize = 0xffffffffffffffff;
 pub const VALID_BIT: usize = 1;
 
 #[allow(non_upper_case_globals)]
@@ -33,7 +33,9 @@ pub const READ_WRITE_EXECUTE: usize = 0b1110;
 
 pub const MAXIMUM_PROCESS: usize = 64;
 
-pub const TRAMPOLINE: usize = MAX_VA - PAGE_SIZE;
+pub const TRAMPOLINE: usize = 0xfffffffffffff000;
 pub const TRAP_STACK: usize = TRAMPOLINE - PAGE_SIZE;
 
 pub const RAM_STOP: usize = 0x80000000 + 2_14_74_83_648;
+
+pub const TIMER_EXTENION_ID: usize = 0x54494D45;
