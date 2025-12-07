@@ -4,14 +4,17 @@ use core::{
 };
 
 use riscv::{
-    interrupt::{Trap, supervisor::Interrupt},
-    register::stvec::Stvec,
+    interrupt::{
+        Trap,
+        supervisor::{Exception, Interrupt},
+    },
+    register::{scause::Scause, stvec::Stvec},
 };
 
 use crate::{
-    constants::{TIMER_EXTENION_ID, TRAMPOLINE, TRAPFRAME},
+    constants::{TIMER_EXTENION_ID, TRAMPOLINE, TRAMPOLINE_OFFSET, TRAPFRAME},
     error::{Error, Result},
-    process::{CURRENT_PROCESS, yield_cpu},
+    process::CURRENT_PROCESS,
     syscall::{self, stdout},
 };
 
@@ -93,48 +96,49 @@ pub fn set_sbi_timer(time: usize) {
 
 #[repr(C)]
 #[repr(align(16))]
-#[derive(Clone, Copy, Default)]
+#[derive(Default, Debug)]
 pub struct TrapFrame {
-    ra: usize,
-    sp: usize,
+    ra: usize, // 0
+    sp: usize, // 8
 
-    gp: usize,
-    tp: usize,
-    t0: usize,
-    t1: usize,
-    t2: usize,
+    gp: usize, // 16
+    tp: usize, // 24
+    t0: usize, // 32
+    t1: usize, // 40
+    t2: usize, // 48
 
-    s0: usize,
-    s1: usize,
-    pub a0: usize,
-    a1: usize,
-    a2: usize,
-    a3: usize,
-    a4: usize,
-    a5: usize,
-    a6: usize,
-    a7: usize,
+    s0: usize,     // 56
+    s1: usize,     // 64
+    pub a0: usize, // 72
+    pub a1: usize, // 80
+    a2: usize,     // 88
+    a3: usize,     // 96
+    a4: usize,     // 104
+    a5: usize,     // 112
+    a6: usize,     // 120
+    pub a7: usize, // 128
 
-    s2: usize,
-    s3: usize,
-    s4: usize,
-    s5: usize,
-    s6: usize,
-    s7: usize,
-    s8: usize,
-    s9: usize,
-    s10: usize,
-    s11: usize,
+    s2: usize,  // 136
+    s3: usize,  // 144
+    s4: usize,  // 152
+    s5: usize,  // 160
+    s6: usize,  // 168
+    s7: usize,  // 176
+    s8: usize,  // 184
+    s9: usize,  // 192
+    s10: usize, // 200
+    s11: usize, // 208
 
-    t3: usize,
-    t4: usize,
-    t5: usize,
-    t6: usize,
+    t3: usize, // 216
+    t4: usize, // 224
+    t5: usize, // 232
+    t6: usize, // 240
 
-    pub sepc: usize,
-    pub page_table: usize,
-    pub kernel_stack: usize,
-    pub kernel_page_table: usize,
+    pub sepc: usize,              // 248
+    pub page_table: usize,        // 256
+    pub kernel_stack: usize,      // 264
+    pub kernel_page_table: usize, // 272
+    pub user_trap_address: usize, // 280
 }
 
 pub fn initialise_traps() {
@@ -163,29 +167,26 @@ pub fn user_trap() {
     let sepc = riscv::register::sepc::read();
 
     if let Some(process) = unsafe { &mut crate::process::CURRENT_PROCESS } {
-        process
+        let trapframe = process
             .trapframe
             .as_mut()
-            .expect("TRAPFRAME NONE WHILE HANDLING USER TRAP")
-            .sepc = sepc;
+            .expect("TRAPFRAME NONE WHILE HANDLING USER TRAP");
 
-        if cause.is_interrupt()
-            && cause.cause() == Trap::Interrupt(Interrupt::SupervisorSoft as usize)
-        {
-            unsafe {
-                riscv::interrupt::enable();
-            }
-            syscall::handle();
-        } else if cause.is_interrupt()
-            && cause.cause() == Trap::Interrupt(Interrupt::SupervisorTimer as usize)
-        {
-            yield_cpu();
-        } else {
-            panic!("UNKNOWN INTERRUPT");
+        trapframe.sepc = sepc;
+
+        if cause.is_interrupt() {
+            handle_interrupts(cause);
+        } else if cause.is_exception() {
+            handle_exceptions(cause);
         }
 
         set_up_supervisor_to_user_mode_transition()
             .expect("TRAP ERROR - CONTEXT NONE WHILE RETURNING TO USER MODE");
+
+        unsafe {
+            let return_to_user_mode_ptr: fn(usize) -> ! = transmute(TRAMPOLINE + TRAMPOLINE_OFFSET);
+            return_to_user_mode_ptr((&raw const **trapframe).addr());
+        }
     } else {
         panic!("USER TRAP, BUT NO RUNNING PROCESS")
     }
@@ -213,4 +214,15 @@ pub fn set_up_supervisor_to_user_mode_transition() -> Result<()> {
     }
 
     Ok(())
+}
+
+pub fn handle_interrupts(cause: Scause) {
+    todo!()
+}
+
+#[unsafe(no_mangle)]
+pub fn handle_exceptions(cause: Scause) {
+    if cause.cause() == Trap::Exception(Exception::UserEnvCall as usize) {
+        syscall::handle();
+    }
 }

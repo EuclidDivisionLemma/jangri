@@ -53,7 +53,6 @@ fn intialise_constants() {
         END_OF_KERNEL_TEXT = align_to_page_size(&end_of_kernel_text as *const u8 as usize);
         KERNEL_START = align_to_page_size(&kernel_start as *const u8 as usize);
         TRAMPOLINE_CODE_ADDRESS = &trampoline_code_address as *const u8 as usize;
-
         TRAMPOLINE_OFFSET = return_to_user_mode as usize - TRAMPOLINE_CODE_ADDRESS;
     }
 }

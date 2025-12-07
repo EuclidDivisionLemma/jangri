@@ -1,4 +1,5 @@
 import subprocess
+from os import mkdir
 
 
 def free_standing_compile(input: str, output: str):
@@ -15,5 +16,10 @@ def free_standing_link(input: str, output: str, flags: str, entry: str):
 
 
 if __name__ == "__main__":
+    try:
+        mkdir("./target")
+    except Exception:
+        pass
     free_standing_compile("./src/init.S", "./target/init.o")
     free_standing_link("./target/init.o", "./target/init.bin", "", "init")
+    subprocess.run("cargo run", shell=True)

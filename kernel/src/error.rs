@@ -18,6 +18,9 @@ pub enum Error {
     FailedToAllocateTrapFrame,
     FailedToAllocatePageTable,
     FailedToAllcateHeap,
+
+    PageTableEntryInvalid,
+    PageTableEntryNotAccessibleInUserMode,
 }
 
 impl Error {
@@ -43,6 +46,10 @@ impl Error {
                 text = "Process Error: Failed to allocate page table\n\n"
             }
             Error::FailedToAllcateHeap => text = "Heap Error: Failed to allocate heap memory\n\n",
+            Error::PageTableEntryInvalid => text = "Page Fault: Page Table Entry is invalid\n\n",
+            Error::PageTableEntryNotAccessibleInUserMode => {
+                text = "Page Fault: Page Table Entry is not accessible in user mode\n\n"
+            }
         }
 
         if panic == true {

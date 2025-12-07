@@ -49,6 +49,7 @@ handle_traps_from_user_mode:
     # load the kernel page table address
     ld t0, 272(a0)
     ld sp, 264(a0) # Set sp to point to the process's kernel stack
+    ld t1, 280(a0) # load the address of usertrap()
 
     sfence.vma
 
@@ -56,7 +57,7 @@ handle_traps_from_user_mode:
 
     sfence.vma
 
-    j user_trap
+    jalr t1
 
 
 return_to_user_mode:
@@ -108,5 +109,7 @@ return_to_user_mode:
     ld t6, 240(a0)
 
     ld a0, 72(a0)
+    csrw scause, zero
+    csrw stval, zero
 
     sret

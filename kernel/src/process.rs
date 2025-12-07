@@ -7,13 +7,11 @@ use crate::{
     },
     error::{Error, Result},
     scheduler::Context,
-    syscall::stdout,
-    traps::{TrapFrame, set_up_supervisor_to_user_mode_transition},
-    vm::map,
+    traps::{TrapFrame, set_up_supervisor_to_user_mode_transition, user_trap},
+    vm::{map, map_trampoline},
 };
 use alloc::{
     boxed::Box,
-    format,
     sync::{Arc, Weak},
     vec::Vec,
 };
@@ -98,6 +96,9 @@ pub fn assign_process() -> Result<&'static mut Process<'static>> {
             process.trapframe = Some(unsafe { Box::from_raw(trapframe as *mut TrapFrame) });
             **process.trapframe.as_mut().unwrap() = TrapFrame::default();
             process.trapframe.as_mut().unwrap().page_table = Sv48 | (page_table >> 12);
+            process.trapframe.as_mut().unwrap().kernel_page_table =
+                Sv48 | (unsafe { KERNEL_PAGE_TABLE } >> 12);
+            process.trapframe.as_mut().unwrap().user_trap_address = user_trap as usize;
 
             return Ok(process);
         }
@@ -162,7 +163,7 @@ pub fn map_other_pages(page_table: usize, final_code: usize, process: &mut Proce
         READ_WRITE,
     )?;
 
-    map(
+    map_trampoline(
         page_table,
         TRAMPOLINE,
         unsafe { TRAMPOLINE_CODE_ADDRESS },
@@ -175,7 +176,7 @@ pub fn map_other_pages(page_table: usize, final_code: usize, process: &mut Proce
     map(
         page_table,
         TRAPFRAME,
-        (&raw const *trapframe).addr(),
+        (&raw const **trapframe).addr(),
         PAGE_SIZE,
         READ_WRITE,
     )?;

@@ -1,13 +1,19 @@
 .section .rodata
 msg:
-    .string "Jangri v0.0.1"
+    .string "Sample\n"
+.align 4
 
-.section .text.init
+.section .text
 .global init
 
+.align 4
 init:
-    li a7, 0x98846
+    li a7, 0
+    la a0, msg
+    li a1, 7
+    ecall
     j cont
 
+.align 4
 cont:
     j cont
