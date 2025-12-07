@@ -2,14 +2,14 @@ use crate::{
     allocator::allocate,
     constants::{
         END_OF_KERNEL_TEXT, KERNEL_PAGE_TABLE, KERNEL_START, MAX_VA, MAXIMUM_PROCESS, PAGE_SIZE,
-        PLIC, PLIC_SIZE, RAM_STOP, READ_EXECUTE, READ_WRITE, TRAMPOLINE, TRAP_STACK, UART0,
-        VALID_BIT, VIRTIO_MMIO_DISK, VIRTIO_MMIO_DISK_SIZE,
+        PLIC, PLIC_SIZE, RAM_STOP, READ_EXECUTE, READ_WRITE, TRAMPOLINE, TRAMPOLINE_CODE_ADDRESS,
+        UART0, VALID_BIT, VIRTIO_MMIO_DISK, VIRTIO_MMIO_DISK_SIZE,
     },
     error::{self, Result},
     syscall::stdout,
 };
-use core::ptr::write_volatile;
 use core::{arch::asm, ptr::read_volatile};
+use core::{f64::math::ceil, ptr::write_volatile};
 
 macro_rules! extract_index_into_level {
     ($level: expr, $virtual_address: expr) => {
@@ -40,6 +40,11 @@ pub fn enable_paging() {
     }
 }
 
+pub fn align_to_page_size(size: usize) -> usize {
+    ceil(size as f64 / PAGE_SIZE as f64) as usize * PAGE_SIZE
+}
+
+#[unsafe(no_mangle)]
 pub fn initialise_kernel_page_table() -> Result<()> {
     unsafe {
         KERNEL_PAGE_TABLE = allocate(1)?;
@@ -79,30 +84,23 @@ pub fn initialise_kernel_page_table() -> Result<()> {
             READ_WRITE,
         )?;
 
-        // map trampoline (todo)
-        // map(
-        //     KERNEL_PAGE_TABLE,
-        //     TRAMPOLINE,
-        //     TRAMPOLINE_CODE_ADDRESS,
-        //     PAGE_SIZE,
-        //     READ_EXECUTE,
-        // )?;
-
-        let trap_stack = allocate(1)?;
-
+        // The trampoline page is mapped at the highest virtual address
+        // in both user and kernel page tables so that we can jump to
+        // it in either mode.
         map(
             KERNEL_PAGE_TABLE,
-            TRAP_STACK,
-            trap_stack,
+            TRAMPOLINE,
+            TRAMPOLINE_CODE_ADDRESS,
             PAGE_SIZE,
-            READ_WRITE,
+            READ_EXECUTE,
         )?;
     }
 
     Ok(())
 }
 
-pub unsafe fn map(
+#[unsafe(no_mangle)]
+pub fn map(
     page_table: usize,
     mut virtual_address: usize,
     mut physical_address: usize,
@@ -142,7 +140,7 @@ pub unsafe fn map(
             );
         }
 
-        virtual_address += PAGE_SIZE;
+        virtual_address = virtual_address.wrapping_add(PAGE_SIZE); // When mapping trampoline, VA overflows
         physical_address += PAGE_SIZE;
     }
 

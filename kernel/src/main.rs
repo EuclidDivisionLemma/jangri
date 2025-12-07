@@ -2,15 +2,19 @@
 #![no_main]
 #![feature(core_float_math)]
 #![allow(static_mut_refs)]
+#![feature(str_from_raw_parts)]
 
-use core::arch::{asm, global_asm};
+use core::arch::global_asm;
 
 use crate::{
-    constants::{END_OF_KERNEL_TEXT, KERNEL_END, KERNEL_PAGE_TABLE, KERNEL_START},
-    process::intialise_processes,
+    constants::{
+        END_OF_KERNEL_TEXT, KERNEL_END, KERNEL_START, TRAMPOLINE_CODE_ADDRESS, TRAMPOLINE_OFFSET,
+    },
+    process::start_init,
+    scheduler::schedule,
     syscall::stdout,
-    traps::initialise_traps,
-    vm::{enable_paging, initialise_kernel_page_table},
+    traps::{initialise_traps, return_to_user_mode},
+    vm::{align_to_page_size, enable_paging, initialise_kernel_page_table},
 };
 
 mod allocator;
@@ -18,24 +22,40 @@ mod constants;
 mod error;
 mod panic;
 mod process;
+mod scheduler;
 mod syscall;
 mod traps;
 mod vm;
 
 extern crate alloc;
 
-global_asm!(include_str!("entry.s"));
+global_asm!(
+    r#"
+    .section .text.entry
+    .global entry
+    entry:
+        la sp, stack_top
+        j main
+
+    "#
+);
 
 unsafe extern "C" {
-    static mut kernel_end: u8;
-    static mut end_of_kernel_text: u8;
-    static mut kernel_start: u8;
+    static kernel_end: u8;
+    static end_of_kernel_text: u8;
+    static kernel_start: u8;
+    static trampoline_code_address: u8;
 }
 
 fn intialise_constants() {
-    unsafe { KERNEL_END = &kernel_end as *const u8 as usize }
-    unsafe { END_OF_KERNEL_TEXT = &end_of_kernel_text as *const u8 as usize }
-    unsafe { KERNEL_START = &kernel_start as *const u8 as usize }
+    unsafe {
+        KERNEL_END = align_to_page_size(&kernel_end as *const u8 as usize);
+        END_OF_KERNEL_TEXT = align_to_page_size(&end_of_kernel_text as *const u8 as usize);
+        KERNEL_START = align_to_page_size(&kernel_start as *const u8 as usize);
+        TRAMPOLINE_CODE_ADDRESS = &trampoline_code_address as *const u8 as usize;
+
+        TRAMPOLINE_OFFSET = return_to_user_mode as usize - TRAMPOLINE_CODE_ADDRESS;
+    }
 }
 
 #[unsafe(no_mangle)]
@@ -49,8 +69,8 @@ fn main() -> ! {
     enable_paging();
     initialise_traps();
 
-    intialise_processes();
     stdout("Jangri v0.0.1\n");
+    start_init();
 
-    loop {}
+    schedule();
 }

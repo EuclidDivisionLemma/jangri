@@ -10,9 +10,14 @@ pub enum Error {
     SizeMisaligned,
     ZeroSize,
     AddressOverflow,
-    InvalidPageTableEntryAccess,
     ValidPageRemap,
     NoUnusedProcess,
+    TrapFrameNone,
+
+    FailedToAllocateStack,
+    FailedToAllocateTrapFrame,
+    FailedToAllocatePageTable,
+    FailedToAllcateHeap,
 }
 
 impl Error {
@@ -24,11 +29,20 @@ impl Error {
             Error::SizeMisaligned => text = "Page Fault: Misaligned Size\n\n",
             Error::ZeroSize => text = "Page Fault: Zero Size\n\n",
             Error::AddressOverflow => text = "Page Fault: Overflow\n\n",
-            Error::InvalidPageTableEntryAccess => {
-                text = "Page Fault: Page Table Entry (PTE) accessed is invalid\n\n";
-            }
+
             Error::ValidPageRemap => text = "Page Fault: Attempt to remap a valid page\n\n",
             Error::NoUnusedProcess => text = "Page Fault: Maximum number of processes exceeded\n\n",
+            Error::TrapFrameNone => text = "Process Error: TrapFrame is None\n\n",
+            Error::FailedToAllocateStack => {
+                text = "Process Error: Failed to allocate kernel stack\n\n"
+            }
+            Error::FailedToAllocateTrapFrame => {
+                text = "Process Error: Failed to allocate trap frame\n\n"
+            }
+            Error::FailedToAllocatePageTable => {
+                text = "Process Error: Failed to allocate page table\n\n"
+            }
+            Error::FailedToAllcateHeap => text = "Heap Error: Failed to allocate heap memory\n\n",
         }
 
         if panic == true {

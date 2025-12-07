@@ -1,18 +1,47 @@
 use crate::{
-    constants::{MAXIMUM_PROCESS, PAGE_SIZE, TRAMPOLINE},
-    traps::TrapFrame,
+    allocator::allocate,
+    constants::{
+        HEAP_PAGES, KERNEL_PAGE_TABLE, MAXIMUM_PROCESS, PAGE_SIZE, READ_EXECUTE, READ_WRITE,
+        STACK_PAGES, Sv48, TRAMPOLINE, TRAMPOLINE_CODE_ADDRESS, TRAMPOLINE_OFFSET, TRAPFRAME,
+        USER_MODE,
+    },
+    error::{Error, Result},
+    scheduler::Context,
+    syscall::stdout,
+    traps::{TrapFrame, set_up_supervisor_to_user_mode_transition},
+    vm::map,
 };
+use alloc::{
+    boxed::Box,
+    format,
+    sync::{Arc, Weak},
+    vec::Vec,
+};
+use core::{arch::global_asm, cell::LazyCell, f64::math::ceil, mem::transmute, ptr};
+use elf::{ElfBytes, endian::NativeEndian};
 
-static mut PROCESSES: [Process; MAXIMUM_PROCESS] = [Process::default(); MAXIMUM_PROCESS];
+global_asm!(
+    r#"
+    .section .rodata
+    .global init_start
+    .global init_end
+    .global init_size
 
-pub fn intialise_processes() {
-    unsafe {
-        for i in 0..MAXIMUM_PROCESS {
-            PROCESSES[i].id = i;
-            PROCESSES[i].kernel_stack = TRAMPOLINE - (i + 1) * 2 * PAGE_SIZE;
-        }
-    }
+    init_start:
+        .incbin "target/init.bin"
+    init_end:
+    "#
+);
+
+unsafe extern "C" {
+    static init_start: usize;
+    static init_end: usize;
 }
+
+pub static mut PROCESSES: LazyCell<[Process; MAXIMUM_PROCESS]> =
+    LazyCell::new(|| core::array::from_fn(|i| Process::default(i)));
+
+pub static mut CURRENT_PROCESS: Option<&'static mut Process> = None;
 
 #[repr(C)]
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -24,24 +53,208 @@ pub enum ProcessState {
     NotUsed,
 }
 
-#[repr(C)]
-#[derive(Clone, Copy)]
-struct Process<'a> {
-    id: usize,
+pub struct Process<'a> {
+    pub id: usize,
     name: &'a str,
     kernel_stack: usize,
-    state: ProcessState,
-    context: Option<TrapFrame>,
+    pub state: ProcessState,
+    pub context: Context,
+    parent: Option<Weak<Process<'a>>>,
+    children: Option<Vec<Arc<Process<'a>>>>,
+    pub page_table: usize,
+    pub code: usize,
+    pub trapframe: Option<Box<TrapFrame>>,
 }
 
 impl<'a> Process<'a> {
-    const fn default() -> Self {
+    fn default(id: usize) -> Self {
         Process {
-            id: 0,
+            id,
             name: "",
             kernel_stack: 0,
             state: ProcessState::NotUsed,
-            context: None,
+            context: Context::default(),
+            parent: None,
+            children: None,
+            page_table: 0,
+            code: 0,
+            trapframe: None,
         }
+    }
+}
+
+pub fn yield_cpu() {}
+
+#[unsafe(no_mangle)]
+pub fn assign_process() -> Result<&'static mut Process<'static>> {
+    let page_table = allocate(1)?;
+    let trapframe = allocate(1)?;
+
+    for process in unsafe { &mut *PROCESSES } {
+        if process.state == ProcessState::NotUsed {
+            process.state = ProcessState::Ready;
+            process.page_table = page_table;
+
+            process.trapframe = Some(unsafe { Box::from_raw(trapframe as *mut TrapFrame) });
+            **process.trapframe.as_mut().unwrap() = TrapFrame::default();
+            process.trapframe.as_mut().unwrap().page_table = Sv48 | (page_table >> 12);
+
+            return Ok(process);
+        }
+    }
+
+    Err(Error::NoUnusedProcess)
+}
+
+#[unsafe(no_mangle)]
+pub fn map_code_pages(page_table: usize, code_pa: usize, code_va: usize, num_code_pages: usize) {
+    if code_va == TRAMPOLINE {
+        panic!("PROCESS CREATION FAILED - CODE SEGMENT CANNOT BE MAPPED TO TRAMPOLINE ADDRESS");
+    } else if code_va == TRAPFRAME {
+        panic!("PROCESS CREATION FAILED - CODE SEGMENT CANNOT BE MAPPED TO TRAPFRAME ADDRESS");
+    }
+    map(
+        page_table,
+        code_va,
+        code_pa,
+        num_code_pages * PAGE_SIZE,
+        READ_EXECUTE | USER_MODE,
+    )
+    .expect("PROCESS CREATION FAILED - ERROR WHILE MAPPING CODE PAGES");
+}
+
+pub fn map_other_pages(page_table: usize, final_code: usize, process: &mut Process) -> Result<()> {
+    if (TRAPFRAME - final_code) < (14 * PAGE_SIZE) {
+        panic!("PROCESS CREATION FAILED - NOT ENOUGH SPACE FOR STACK AND HEAP");
+    }
+
+    let stack = allocate(STACK_PAGES)?;
+    let heap = allocate(HEAP_PAGES)?;
+    let kernel_stack = allocate(1)?;
+
+    map(
+        page_table,
+        TRAMPOLINE - 7 * PAGE_SIZE,
+        stack,
+        3 * PAGE_SIZE,
+        READ_WRITE | USER_MODE,
+    )?;
+
+    map(
+        page_table,
+        TRAMPOLINE - 18 * PAGE_SIZE,
+        heap,
+        10 * PAGE_SIZE,
+        READ_WRITE | USER_MODE,
+    )?;
+
+    process.kernel_stack = kernel_stack;
+
+    // ALERT: `sp` holds the virtual address and not physical address, as it
+    // is accessed with satp pointing to user's page table
+    process.context.sp = TRAMPOLINE - 4 * PAGE_SIZE;
+
+    map(
+        page_table,
+        TRAMPOLINE - 3 * PAGE_SIZE,
+        process.kernel_stack,
+        PAGE_SIZE,
+        READ_WRITE,
+    )?;
+
+    map(
+        page_table,
+        TRAMPOLINE,
+        unsafe { TRAMPOLINE_CODE_ADDRESS },
+        PAGE_SIZE,
+        READ_EXECUTE,
+    )?;
+
+    let trapframe = process.trapframe.as_mut().ok_or(Error::TrapFrameNone)?;
+
+    map(
+        page_table,
+        TRAPFRAME,
+        (&raw const *trapframe).addr(),
+        PAGE_SIZE,
+        READ_WRITE,
+    )?;
+
+    trapframe.kernel_page_table = Sv48 | (unsafe { KERNEL_PAGE_TABLE } >> 12);
+    trapframe.kernel_stack = process.kernel_stack + PAGE_SIZE;
+
+    Ok(())
+}
+
+#[unsafe(no_mangle)]
+pub fn start_init() {
+    let start = unsafe { &init_start as *const usize as usize };
+    let end = unsafe { &init_end as *const usize as usize };
+    let size = end - start;
+    let mut page = 0;
+    let mut max_code_page_end = 0;
+
+    let process = assign_process().expect("INIT FAILED - FAILED TO ASSIGN PROCESS");
+
+    let elf_bytes = unsafe { core::slice::from_raw_parts(start as *const u8, size) };
+    let elf_data: ElfBytes<NativeEndian> =
+        elf::ElfBytes::minimal_parse(elf_bytes).expect("INIT FAILED - ELF ERROR");
+    let program_headers = elf_data
+        .segments()
+        .expect("INIT FAILED - NO SEGMENTS")
+        .iter();
+
+    for header in program_headers {
+        if header.p_type == elf::abi::PT_LOAD {
+            let file_size = header.p_filesz as usize;
+            let mem_size = header.p_memsz as usize;
+
+            let num_pages = ceil(mem_size as f64 / PAGE_SIZE as f64) as usize;
+
+            page = allocate(num_pages).expect("INIT FAILED - FAILED TO ALLOCATE PAGE FOR CODE");
+
+            if page > max_code_page_end {
+                max_code_page_end = page + num_pages * PAGE_SIZE;
+            }
+
+            let offset = header.p_offset as usize;
+
+            let va = header.p_vaddr as usize;
+            let flags = header.p_flags;
+
+            let loadable = &elf_bytes[offset..offset + file_size];
+
+            map_code_pages(process.page_table, page, va, num_pages);
+
+            unsafe {
+                ptr::copy_nonoverlapping(loadable.as_ptr(), page as *mut u8, file_size);
+            }
+        }
+    }
+
+    if page == 0 {
+        panic!("PANIC: INIT FAILED - ELF CONTAINS NO LOADABLE SEGMENT");
+    }
+
+    map_other_pages(process.page_table, max_code_page_end, process)
+        .expect("INIT FAILED - ERROR WHILE MAPPING PAGES");
+
+    unsafe {
+        CURRENT_PROCESS = Some(&mut PROCESSES[0]);
+    }
+
+    let trapframe = process
+        .trapframe
+        .as_mut()
+        .expect("INIT FAILED - TRAPFRAME NONE");
+
+    trapframe.sepc = elf_data.ehdr.e_entry as usize;
+
+    set_up_supervisor_to_user_mode_transition()
+        .expect("INIT FAILED - CONTEXT NONE WHILE RETURNING TO USER MODE");
+
+    unsafe {
+        let return_to_user_mode_ptr: fn(usize) -> ! = transmute(TRAMPOLINE + TRAMPOLINE_OFFSET);
+        return_to_user_mode_ptr((&raw const **trapframe).addr());
     }
 }

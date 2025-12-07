@@ -28,14 +28,20 @@ pub static mut KERNEL_PAGE_TABLE: usize = 0;
 pub const READ_WRITE: usize = 0b0110;
 pub const READ_ONLY: usize = 0b10;
 pub const EXECUTE_ONLY: usize = 0b1000;
+pub const USER_MODE: usize = 0b10000;
 pub const READ_EXECUTE: usize = 0b1010;
 pub const READ_WRITE_EXECUTE: usize = 0b1110;
 
 pub const MAXIMUM_PROCESS: usize = 64;
 
 pub const TRAMPOLINE: usize = 0xfffffffffffff000;
-pub const TRAP_STACK: usize = TRAMPOLINE - PAGE_SIZE;
+pub const TRAPFRAME: usize = TRAMPOLINE - PAGE_SIZE;
 
 pub const RAM_STOP: usize = 0x80000000 + 2_14_74_83_648;
 
 pub const TIMER_EXTENION_ID: usize = 0x54494D45;
+
+pub const STACK_PAGES: usize = 3;
+pub const HEAP_PAGES: usize = 10;
+
+pub static mut TRAMPOLINE_OFFSET: usize = 0;

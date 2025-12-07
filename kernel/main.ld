@@ -7,12 +7,14 @@ SECTIONS
     .text :
     {
         *(.text.entry);
-        *(.text);
         *(.text.*);
         . = ALIGN(4096);
-    }
+        PROVIDE(trampoline_code_address = .);
+        *(trampsec)
+        ASSERT(. - trampoline_code_address < 0x1000, "ERROR: TRAMPOLINE LARGER THAN ONE PAGE");
+        PROVIDE(end_of_kernel_text = .);
 
-    PROVIDE(end_of_kernel_text = .);
+    }
 
     .rodata :
     {

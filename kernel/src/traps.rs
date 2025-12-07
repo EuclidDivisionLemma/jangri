@@ -1,30 +1,32 @@
-use core::arch::{asm, global_asm};
+use core::{
+    arch::{asm, global_asm},
+    mem::transmute,
+};
 
-use alloc::format;
-use riscv::register::stvec::Stvec;
+use riscv::{
+    interrupt::{Trap, supervisor::Interrupt},
+    register::stvec::Stvec,
+};
 
 use crate::{
-    constants::{TIMER_EXTENION_ID, TRAP_STACK},
-    syscall::stdout,
+    constants::{TIMER_EXTENION_ID, TRAMPOLINE, TRAPFRAME},
+    error::{Error, Result},
+    process::{CURRENT_PROCESS, yield_cpu},
+    syscall::{self, stdout},
 };
 
 unsafe extern "C" {
-    fn handle_traps_from_supervisor_mode();
-}
-
-pub fn set_sbi_timer(time: usize) {
-    unsafe {
-        asm!("rdtime a0", "add a0, a0, {}", "mv a7, {}", "li a6, 0", "ecall", in(reg) time, in(reg) TIMER_EXTENION_ID );
-    }
-    stdout("CALLED\n");
+    pub safe fn handle_traps_from_supervisor_mode();
+    pub safe fn return_to_user_mode(trapframe: usize);
 }
 
 global_asm!(
     r#"
-    .section .text.trap_handlers
+    .section .text.handle_traps_from_supervisor_mode
     .global handle_traps_from_supervisor_mode
     .global supervisor_trap
     .align 4
+
 
     handle_traps_from_supervisor_mode:
         addi sp, sp, -256
@@ -76,9 +78,22 @@ global_asm!(
     "#
 );
 
+pub fn set_sbi_timer(time: usize) {
+    unsafe {
+        asm!("rdtime a0",
+            "add a0, a0, {}",
+            "mv a7, {}",
+            "li a6, 0",
+            "ecall",
+            in(reg) time,
+            in(reg) TIMER_EXTENION_ID );
+    }
+    stdout("CALLED\n");
+}
+
 #[repr(C)]
 #[repr(align(16))]
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Default)]
 pub struct TrapFrame {
     ra: usize,
     sp: usize,
@@ -91,7 +106,7 @@ pub struct TrapFrame {
 
     s0: usize,
     s1: usize,
-    a0: usize,
+    pub a0: usize,
     a1: usize,
     a2: usize,
     a3: usize,
@@ -115,6 +130,11 @@ pub struct TrapFrame {
     t4: usize,
     t5: usize,
     t6: usize,
+
+    pub sepc: usize,
+    pub page_table: usize,
+    pub kernel_stack: usize,
+    pub kernel_page_table: usize,
 }
 
 pub fn initialise_traps() {
@@ -123,13 +143,74 @@ pub fn initialise_traps() {
             handle_traps_from_supervisor_mode as usize,
             riscv::register::stvec::TrapMode::Direct,
         ));
-        riscv::register::sscratch::write(TRAP_STACK);
-        riscv::interrupt::enable();
-        set_sbi_timer(10000000);
+        riscv::register::sscratch::write(TRAPFRAME);
     }
 }
 
 #[unsafe(no_mangle)]
 pub fn supervisor_trap() {
-    set_sbi_timer(10000000);
+    let cause = riscv::register::scause::read();
+
+    if cause.is_interrupt() && cause.cause() == Trap::Interrupt(Interrupt::SupervisorTimer as usize)
+    {
+        todo!()
+    }
+}
+
+#[unsafe(no_mangle)]
+pub fn user_trap() {
+    let cause = riscv::register::scause::read();
+    let sepc = riscv::register::sepc::read();
+
+    if let Some(process) = unsafe { &mut crate::process::CURRENT_PROCESS } {
+        process
+            .trapframe
+            .as_mut()
+            .expect("TRAPFRAME NONE WHILE HANDLING USER TRAP")
+            .sepc = sepc;
+
+        if cause.is_interrupt()
+            && cause.cause() == Trap::Interrupt(Interrupt::SupervisorSoft as usize)
+        {
+            unsafe {
+                riscv::interrupt::enable();
+            }
+            syscall::handle();
+        } else if cause.is_interrupt()
+            && cause.cause() == Trap::Interrupt(Interrupt::SupervisorTimer as usize)
+        {
+            yield_cpu();
+        } else {
+            panic!("UNKNOWN INTERRUPT");
+        }
+
+        set_up_supervisor_to_user_mode_transition()
+            .expect("TRAP ERROR - CONTEXT NONE WHILE RETURNING TO USER MODE");
+    } else {
+        panic!("USER TRAP, BUT NO RUNNING PROCESS")
+    }
+}
+
+pub fn set_up_supervisor_to_user_mode_transition() -> Result<()> {
+    // Disable interrupts because we are changing stvec to point to
+    // `handle_traps_from_user_mode` and we don't want an interrupt
+    // to be handled by it while we are still in supervisor mode
+    riscv::interrupt::supervisor::disable();
+
+    unsafe {
+        riscv::register::stvec::write(riscv::register::stvec::Stvec::new(
+            transmute::<usize, fn() -> !>(TRAMPOLINE) as usize,
+            riscv::register::stvec::TrapMode::Direct,
+        ));
+    }
+
+    unsafe {
+        let process = CURRENT_PROCESS.as_ref().unwrap();
+        let trapframe = process.trapframe.as_ref().ok_or(Error::TrapFrameNone)?;
+        riscv::register::sepc::write(trapframe.sepc);
+        riscv::register::sstatus::set_spp(riscv::register::sstatus::SPP::User);
+        riscv::register::sstatus::set_spie();
+    }
+
+    Ok(())
 }
