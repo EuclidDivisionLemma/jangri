@@ -81,7 +81,7 @@ global_asm!(
     "#
 );
 
-pub fn set_sbi_timer(time: usize) {
+pub fn set_next_timer_interrupt(time: usize) {
     unsafe { asm!("csrw stimecmp, {}", in(reg) riscv::register::time::read() + time) }
 }
 
@@ -144,7 +144,7 @@ pub fn initialise_traps() {
         riscv::register::sie::set_stimer();
     }
 
-    set_sbi_timer(TIME_SLICE);
+    set_next_timer_interrupt(TIME_SLICE);
 }
 
 #[unsafe(no_mangle)]
@@ -153,7 +153,7 @@ pub fn supervisor_trap() {
 
     if cause.is_interrupt() && cause.cause() == Trap::Interrupt(Interrupt::SupervisorTimer as usize)
     {
-        set_sbi_timer(TIME_SLICE);
+        set_next_timer_interrupt(TIME_SLICE);
     }
 }
 
@@ -214,7 +214,7 @@ pub fn set_up_supervisor_to_user_mode_transition() -> Result<()> {
 
 pub fn handle_interrupts(cause: Scause) {
     if cause.cause() == Trap::Interrupt(Interrupt::SupervisorTimer as usize) {
-        set_sbi_timer(TIME_SLICE);
+        set_next_timer_interrupt(TIME_SLICE);
         yield_cpu();
     }
 }
