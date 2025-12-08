@@ -34,7 +34,7 @@ global_asm!(
     .global process_1_end
 
     process_1_start:
-        .incbin "target/process1.bin"
+        .incbin "../build/process1"
     process_1_end:
     "#
 );
@@ -46,7 +46,7 @@ global_asm!(
     .global process_2_end
 
     process_2_start:
-        .incbin "target/process2.bin"
+        .incbin "../build/process2"
     process_2_end:
     "#
 );
