@@ -2,7 +2,7 @@ use core::{
     alloc::{GlobalAlloc, Layout},
     cell::RefCell,
     f64::math::ceil,
-    ptr::null_mut,
+    ptr::{null_mut, write_bytes},
 };
 
 use crate::{

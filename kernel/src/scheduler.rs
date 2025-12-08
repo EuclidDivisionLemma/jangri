@@ -1,7 +1,7 @@
 use core::{arch::global_asm, cell::LazyCell};
 
 use crate::{
-    process::{PROCESSES, ProcessState},
+    process::{CURRENT_PROCESS, PROCESSES, ProcessState},
     syscall::stdout,
 };
 
@@ -28,7 +28,11 @@ pub struct Context {
 pub static mut SCHEDULER_CONTEXT: LazyCell<Context> = LazyCell::new(|| Context::default());
 
 unsafe extern "C" {
-    fn switch_context(old: *mut Context, new: *const Context);
+    /// Switches context from the old context to the new context.
+    /// Called inside scheduler to switch from scheduler context to process context
+    /// and called inside `switch_to_scheduler_context` to switch from process context
+    /// to scheduler context.
+    fn switch_context(old: usize, new: usize);
 }
 
 global_asm!(
@@ -72,6 +76,7 @@ global_asm!(
     "#
 );
 
+#[unsafe(no_mangle)]
 pub fn schedule() -> ! {
     loop {
         let mut found = false;
@@ -83,11 +88,12 @@ pub fn schedule() -> ! {
 
         for process in unsafe { &mut *PROCESSES } {
             if process.state == ProcessState::Ready {
-                let context = &process.context;
+                let context = &raw const process.context;
                 process.state = ProcessState::Running;
 
                 unsafe {
-                    switch_context(&raw mut *SCHEDULER_CONTEXT, &raw const *context);
+                    CURRENT_PROCESS = Some(process);
+                    switch_context((&raw mut *SCHEDULER_CONTEXT).addr(), context.addr());
                     found = true;
                 }
             }
@@ -97,5 +103,19 @@ pub fn schedule() -> ! {
             stdout("Going to sleep!");
             riscv::asm::wfi();
         }
+    }
+}
+
+/// Switches from the current process context to the scheduler context.
+pub fn switch_to_scheduler_context() {
+    unsafe {
+        let process = &**CURRENT_PROCESS
+            .as_ref()
+            .expect("No current process in switch_to_scheduler_context");
+
+        switch_context(
+            (&raw const process.context).addr(),
+            (&raw mut *SCHEDULER_CONTEXT).addr(),
+        );
     }
 }

@@ -12,9 +12,9 @@ use riscv::{
 };
 
 use crate::{
-    constants::{TIMER_EXTENION_ID, TRAMPOLINE, TRAMPOLINE_OFFSET, TRAPFRAME},
+    constants::{TIME_SLICE, TIMER_EXTENION_ID, TRAMPOLINE, TRAMPOLINE_OFFSET, TRAPFRAME},
     error::{Error, Result},
-    process::CURRENT_PROCESS,
+    process::{CURRENT_PROCESS, yield_cpu},
     syscall::{self, stdout},
 };
 
@@ -82,24 +82,15 @@ global_asm!(
 );
 
 pub fn set_sbi_timer(time: usize) {
-    unsafe {
-        asm!("rdtime a0",
-            "add a0, a0, {}",
-            "mv a7, {}",
-            "li a6, 0",
-            "ecall",
-            in(reg) time,
-            in(reg) TIMER_EXTENION_ID );
-    }
-    stdout("CALLED\n");
+    unsafe { asm!("csrw stimecmp, {}", in(reg) riscv::register::time::read() + time) }
 }
 
 #[repr(C)]
 #[repr(align(16))]
 #[derive(Default, Debug)]
 pub struct TrapFrame {
-    ra: usize, // 0
-    sp: usize, // 8
+    ra: usize,     // 0
+    pub sp: usize, // 8
 
     gp: usize, // 16
     tp: usize, // 24
@@ -134,9 +125,10 @@ pub struct TrapFrame {
     t5: usize, // 232
     t6: usize, // 240
 
-    pub sepc: usize,              // 248
-    pub page_table: usize,        // 256
-    pub kernel_stack: usize,      // 264
+    pub sepc: usize,       // 248
+    pub page_table: usize, // 256
+    /// CAUTION: Holds the address of top of the stack
+    pub kernel_stack: usize, // 264
     pub kernel_page_table: usize, // 272
     pub user_trap_address: usize, // 280
 }
@@ -148,7 +140,11 @@ pub fn initialise_traps() {
             riscv::register::stvec::TrapMode::Direct,
         ));
         riscv::register::sscratch::write(TRAPFRAME);
+        riscv::interrupt::supervisor::enable();
+        riscv::register::sie::set_stimer();
     }
+
+    set_sbi_timer(TIME_SLICE);
 }
 
 #[unsafe(no_mangle)]
@@ -157,7 +153,7 @@ pub fn supervisor_trap() {
 
     if cause.is_interrupt() && cause.cause() == Trap::Interrupt(Interrupt::SupervisorTimer as usize)
     {
-        todo!()
+        set_sbi_timer(TIME_SLICE);
     }
 }
 
@@ -217,7 +213,10 @@ pub fn set_up_supervisor_to_user_mode_transition() -> Result<()> {
 }
 
 pub fn handle_interrupts(cause: Scause) {
-    todo!()
+    if cause.cause() == Trap::Interrupt(Interrupt::SupervisorTimer as usize) {
+        set_sbi_timer(TIME_SLICE);
+        yield_cpu();
+    }
 }
 
 #[unsafe(no_mangle)]

@@ -1,5 +1,6 @@
 pub const PAGE_SIZE: usize = 4096;
 pub const MEM_SIZE: usize = 0x80000000;
+pub const TIME_SLICE: usize = 100000;
 
 pub static mut KERNEL_END: usize = 0;
 pub static mut END_OF_KERNEL_TEXT: usize = 0; // re-assign later in main::_start

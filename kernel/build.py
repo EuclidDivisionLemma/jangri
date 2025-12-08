@@ -20,6 +20,9 @@ if __name__ == "__main__":
         mkdir("./target")
     except Exception:
         pass
-    free_standing_compile("./src/init.S", "./target/init.o")
-    free_standing_link("./target/init.o", "./target/init.bin", "", "init")
+    free_standing_compile("./src/process1.S", "./target/process1.o")
+    free_standing_link("./target/process1.o", "./target/process1.bin", "", "process1")
+
+    free_standing_compile("./src/process2.S", "./target/process2.o")
+    free_standing_link("./target/process2.o", "./target/process2.bin", "", "process2")
     subprocess.run("cargo run", shell=True)

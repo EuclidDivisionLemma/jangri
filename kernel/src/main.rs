@@ -10,7 +10,7 @@ use crate::{
     constants::{
         END_OF_KERNEL_TEXT, KERNEL_END, KERNEL_START, TRAMPOLINE_CODE_ADDRESS, TRAMPOLINE_OFFSET,
     },
-    process::start_init,
+    process::{start_init_1, start_init_2},
     scheduler::schedule,
     syscall::stdout,
     traps::{initialise_traps, return_to_user_mode},
@@ -69,7 +69,8 @@ fn main() -> ! {
     initialise_traps();
 
     stdout("Jangri v0.0.1\n");
-    start_init();
+    start_init_1();
+    start_init_2();
 
     schedule();
 }
