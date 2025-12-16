@@ -14,6 +14,7 @@ pub const DIVISOR_LATCH_HIGH: usize = 1; // Divisor Latch High Byte
 pub const DIVISOR_LATCH_LOW: usize = 0; // Divisor Latch Low Byte
 
 static mut TX_BUSY: bool = false;
+static mut CURSOR_POSITION: usize = 0;
 
 pub fn write(offset: usize, value: u8) {
     unsafe {
@@ -54,12 +55,30 @@ pub fn write_char(byte: u8) {
     write(THR, byte);
 }
 
+pub fn write_char_waiting(byte: u8) {
+    riscv::interrupt::supervisor::disable();
+
+    while read(LSR) & (1 << 5) == 0 {
+        core::hint::spin_loop();
+    }
+
+    write(THR, byte);
+
+    unsafe {
+        riscv::interrupt::supervisor::enable();
+    }
+}
+
 #[unsafe(no_mangle)]
 pub fn console_write(text: &str) {
     for byte in text.bytes() {
-        if byte == '\n' as u8 {
+        if byte == '\n' as u8 || byte == '\r' as u8 {
             write_char('\n' as u8);
             write_char('\r' as u8);
+        } else if byte == 0x7f || byte == 0x08 {
+            write_char_waiting(0x7f);
+            write_char_waiting(' ' as u8);
+            write_char_waiting(0x7f);
         } else {
             write_char(byte);
         }
@@ -73,5 +92,31 @@ pub fn handle_interrupt() {
         unsafe {
             TX_BUSY = false;
         }
+    }
+
+    loop {
+        match read_char() {
+            Some(v) => {
+                if v == '\n' as u8 || v == '\r' as u8 {
+                    write_char_waiting('\n' as u8);
+                    write_char_waiting('\r' as u8);
+                } else if v == 0x7f || v == 0x08 {
+                    write_char_waiting(0x08);
+                    write_char_waiting(' ' as u8);
+                    write_char_waiting(0x08);
+                } else {
+                    write_char(v);
+                }
+            }
+            None => break,
+        }
+    }
+}
+
+pub fn read_char() -> Option<u8> {
+    if read(LSR) & 0b1 == 1 {
+        Some(unsafe { read_volatile(RBR as *const u8) })
+    } else {
+        None
     }
 }

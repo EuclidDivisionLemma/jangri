@@ -75,7 +75,7 @@ fn main() -> ! {
     initialise_plic();
     initialise_uart();
 
-    console_write("Jangri v0.0.1\n");
+    console_write("\x1b[2J\x1b[HJangri v0.0.1\n");
     start_init_1();
     start_init_2();
 
