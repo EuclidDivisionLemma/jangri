@@ -12,10 +12,12 @@ use riscv::{
 };
 
 use crate::{
-    constants::{TIME_SLICE, TIMER_EXTENION_ID, TRAMPOLINE, TRAMPOLINE_OFFSET, TRAPFRAME},
+    constants::{TIME_SLICE, TRAMPOLINE, TRAMPOLINE_OFFSET, TRAPFRAME, UART_ID},
+    drivers::uart,
     error::{Error, Result},
+    plic,
     process::{CURRENT_PROCESS, yield_cpu},
-    syscall::{self, stdout},
+    syscall::{self},
 };
 
 unsafe extern "C" {
@@ -142,6 +144,7 @@ pub fn initialise_traps() {
         riscv::register::sscratch::write(TRAPFRAME);
         riscv::interrupt::supervisor::enable();
         riscv::register::sie::set_stimer();
+        riscv::register::sie::set_sext();
     }
 
     set_next_timer_interrupt(TIME_SLICE);
@@ -154,11 +157,32 @@ pub fn supervisor_trap() {
     if cause.is_interrupt() && cause.cause() == Trap::Interrupt(Interrupt::SupervisorTimer as usize)
     {
         set_next_timer_interrupt(TIME_SLICE);
+    } else if cause.is_interrupt()
+        && cause.cause() == Trap::Interrupt(Interrupt::SupervisorExternal as usize)
+    {
+        let id = plic::claim();
+
+        if id == UART_ID {
+            uart::handle_interrupt();
+        }
+
+        if id != 0 {
+            plic::complete(id);
+        }
+    } else if cause.is_exception() {
+        panic!("UNHANDLED SUPERVISOR TRAP EXCEPTION: {:?}", cause);
     }
 }
 
 #[unsafe(no_mangle)]
 pub fn user_trap() {
+    unsafe {
+        riscv::register::stvec::write(riscv::register::stvec::Stvec::new(
+            handle_traps_from_supervisor_mode as usize,
+            riscv::register::stvec::TrapMode::Direct,
+        ));
+    }
+
     let cause = riscv::register::scause::read();
     let sepc = riscv::register::sepc::read();
 
@@ -216,6 +240,16 @@ pub fn handle_interrupts(cause: Scause) {
     if cause.cause() == Trap::Interrupt(Interrupt::SupervisorTimer as usize) {
         set_next_timer_interrupt(TIME_SLICE);
         yield_cpu();
+    } else if cause.cause() == Trap::Interrupt(Interrupt::SupervisorExternal as usize) {
+        let id = plic::claim();
+
+        if id == UART_ID {
+            uart::handle_interrupt();
+        }
+
+        if id != 0 {
+            plic::complete(id);
+        }
     }
 }
 

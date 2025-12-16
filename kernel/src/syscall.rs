@@ -1,6 +1,8 @@
 use core::{arch::asm, slice, str};
 
-use crate::{process::CURRENT_PROCESS, vm::translate_virtual_address};
+use crate::{
+    drivers::uart::console_write, process::CURRENT_PROCESS, vm::translate_virtual_address,
+};
 
 pub enum SyscallErrors {
     StringInvalid = 2,
@@ -39,6 +41,10 @@ pub fn handle() {
         // But when the trap is due to a system call, we need to execute the next instruction
         trapframe.sepc += 4;
 
+        unsafe {
+            riscv::interrupt::supervisor::enable();
+        }
+
         if syscall_no == SyscallNumbers::Stdout as usize {
             let length = trapframe.a1;
             let ptr = match translate_virtual_address(process.page_table, trapframe.a0) {
@@ -58,7 +64,7 @@ pub fn handle() {
                 }
             };
 
-            stdout(s);
+            console_write(s);
             trapframe.a0 = 0;
         } else {
             trapframe.a0 = SyscallErrors::UnknownSyscall as usize;

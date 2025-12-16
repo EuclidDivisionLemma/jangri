@@ -1,4 +1,4 @@
-use crate::syscall::stdout;
+use crate::drivers::uart::console_write;
 
 pub type Result<T> = core::result::Result<T, Error>;
 
@@ -55,7 +55,7 @@ impl Error {
         if panic == true {
             panic!("{text}");
         } else {
-            stdout(text);
+            console_write(text);
         }
     }
 }

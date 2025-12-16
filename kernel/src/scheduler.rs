@@ -1,9 +1,6 @@
 use core::{arch::global_asm, cell::LazyCell};
 
-use crate::{
-    process::{CURRENT_PROCESS, PROCESSES, ProcessState},
-    syscall::stdout,
-};
+use crate::process::{CURRENT_PROCESS, PROCESSES, ProcessState};
 
 #[repr(C)]
 #[derive(Clone, Default)]
@@ -100,7 +97,6 @@ pub fn schedule() -> ! {
         }
 
         if !found {
-            stdout("Going to sleep!");
             riscv::asm::wfi();
         }
     }

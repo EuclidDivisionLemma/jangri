@@ -6,7 +6,6 @@ use crate::{
         UART0, USER_MODE, VALID_BIT, VIRTIO_MMIO_DISK, VIRTIO_MMIO_DISK_SIZE,
     },
     error::{self, Result},
-    syscall::stdout,
 };
 use core::{arch::asm, f64::math::floor, ptr::read_volatile};
 use core::{f64::math::ceil, ptr::write_volatile};
@@ -243,7 +242,7 @@ pub fn map_kernel_stack() {
         match allocate(1) {
             Ok(v) => physical_address = v,
             Err(_) => {
-                return stdout("Page Fault: No Free Memory\n");
+                panic!("ERROR - WHILE MAPPING KERNEL STACK - Page Fault: No Free Memory\n");
             }
         }
         unsafe {

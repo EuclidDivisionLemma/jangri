@@ -46,3 +46,9 @@ pub const STACK_PAGES: usize = 3;
 pub const HEAP_PAGES: usize = 10;
 
 pub static mut TRAMPOLINE_OFFSET: usize = 0;
+
+pub const UART_ID: usize = 10;
+pub const UART_PRIORITY_ADDRESS: usize = PLIC + UART_ID * 4;
+pub const PLIC_S_MODE_ENABLE: usize = PLIC + 0x2080;
+pub const PLIC_S_MODE_THRESHOLD: usize = PLIC + 0x201000;
+pub const PLIC_S_MODE_CLAIM: usize = PLIC + 0x201004;

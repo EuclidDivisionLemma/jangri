@@ -2,18 +2,16 @@ use crate::{
     allocator::allocate,
     constants::{
         HEAP_PAGES, KERNEL_PAGE_TABLE, MAXIMUM_PROCESS, PAGE_SIZE, READ_EXECUTE, READ_WRITE,
-        READ_WRITE_EXECUTE, STACK_PAGES, Sv48, TRAMPOLINE, TRAMPOLINE_CODE_ADDRESS,
-        TRAMPOLINE_OFFSET, TRAPFRAME, USER_MODE,
+        STACK_PAGES, Sv48, TRAMPOLINE, TRAMPOLINE_CODE_ADDRESS, TRAMPOLINE_OFFSET, TRAPFRAME,
+        USER_MODE,
     },
     error::{Error, Result},
     scheduler::{Context, switch_to_scheduler_context},
-    syscall::stdout,
     traps::{TrapFrame, set_up_supervisor_to_user_mode_transition, user_trap},
     vm::{map, map_trampoline},
 };
 use alloc::{
     boxed::Box,
-    format,
     sync::{Arc, Weak},
     vec::Vec,
 };

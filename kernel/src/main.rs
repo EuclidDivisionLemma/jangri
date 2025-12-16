@@ -10,17 +10,21 @@ use crate::{
     constants::{
         END_OF_KERNEL_TEXT, KERNEL_END, KERNEL_START, TRAMPOLINE_CODE_ADDRESS, TRAMPOLINE_OFFSET,
     },
+    drivers::uart::{console_write, initialise_uart},
+    plic::initialise_plic,
     process::{start_init_1, start_init_2},
     scheduler::schedule,
-    syscall::stdout,
     traps::{initialise_traps, return_to_user_mode},
     vm::{align_to_page_size, enable_paging, initialise_kernel_page_table},
 };
 
 mod allocator;
 mod constants;
+mod drivers;
+
 mod error;
 mod panic;
+mod plic;
 mod process;
 mod scheduler;
 mod syscall;
@@ -68,7 +72,10 @@ fn main() -> ! {
     enable_paging();
     initialise_traps();
 
-    stdout("Jangri v0.0.1\n");
+    initialise_plic();
+    initialise_uart();
+
+    console_write("Jangri v0.0.1\n");
     start_init_1();
     start_init_2();
 
