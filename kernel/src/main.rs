@@ -1,16 +1,27 @@
 #![no_std]
-#![no_main]
+#![cfg_attr(not(test), no_main)]
 #![feature(core_float_math)]
 #![allow(static_mut_refs)]
 #![feature(str_from_raw_parts)]
+#![feature(map_try_insert)]
+#![feature(if_let_guard)]
 
 use core::arch::global_asm;
+
+use alloc::format;
 
 use crate::{
     constants::{
         END_OF_KERNEL_TEXT, KERNEL_END, KERNEL_START, TRAMPOLINE_CODE_ADDRESS, TRAMPOLINE_OFFSET,
     },
-    drivers::uart::{console_write, initialise_uart},
+    drivers::{
+        Storage,
+        ram_disk::RamDisk,
+        uart::{console_write, initialise_uart},
+    },
+    file::{allocate_file, create_fs_file, traverse_path},
+    fs::sfs::{self, DiskINode, initialise_root, read_inode},
+    pipe::allocate_pipe,
     plic::initialise_plic,
     process::{start_init_1, start_init_2},
     scheduler::schedule,
@@ -21,9 +32,11 @@ use crate::{
 mod allocator;
 mod constants;
 mod drivers;
-
 mod error;
+mod file;
+mod fs;
 mod panic;
+mod pipe;
 mod plic;
 mod process;
 mod scheduler;
@@ -51,6 +64,8 @@ unsafe extern "C" {
     static trampoline_code_address: u8;
 }
 
+pub const DEVICE: RamDisk = RamDisk;
+
 fn intialise_constants() {
     unsafe {
         KERNEL_END = align_to_page_size(&kernel_end as *const u8 as usize);
@@ -65,11 +80,13 @@ fn intialise_constants() {
 fn main() -> ! {
     intialise_constants();
 
-    if let Err(e) = initialise_kernel_page_table() {
-        e.log(true);
-    }
+    initialise_kernel_page_table().unwrap();
 
     enable_paging();
+
+    let ram_disk = RamDisk;
+    ram_disk.initialise();
+
     initialise_traps();
 
     initialise_plic();
@@ -78,6 +95,9 @@ fn main() -> ! {
     console_write("\x1b[2J\x1b[HJangri v0.0.1\n");
     start_init_1();
     start_init_2();
+
+    fs::sfs::initialise(&DEVICE);
+    initialise_root(&DEVICE);
 
     schedule();
 }

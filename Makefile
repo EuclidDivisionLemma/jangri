@@ -1,5 +1,5 @@
 make: build
-	cd kernel && cargo run
+	cd kernel && export RUSTFLAGS="-C force-frame-pointers=yes" && cargo run
 
 build: build_process1 build_process2
 	cd kernel && cargo build

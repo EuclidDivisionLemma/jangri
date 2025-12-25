@@ -26,7 +26,6 @@ pub fn read(offset: usize) -> u8 {
     unsafe { read_volatile((UART0 + offset) as *const u8) }
 }
 
-#[unsafe(no_mangle)]
 pub fn initialise_uart() {
     write(IER, 0);
 
@@ -69,7 +68,6 @@ pub fn write_char_waiting(byte: u8) {
     }
 }
 
-#[unsafe(no_mangle)]
 pub fn console_write(text: &str) {
     for byte in text.bytes() {
         if byte == '\n' as u8 || byte == '\r' as u8 {

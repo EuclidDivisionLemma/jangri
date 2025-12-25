@@ -26,7 +26,6 @@ pub fn stdout<'a>(text: &'a str) {
     }
 }
 
-#[unsafe(no_mangle)]
 pub fn handle() {
     let syscall_no: usize;
 

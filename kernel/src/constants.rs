@@ -1,3 +1,5 @@
+use core::num::{NonZero, NonZeroUsize};
+
 pub const PAGE_SIZE: usize = 4096;
 pub const MEM_SIZE: usize = 0x80000000;
 pub const TIME_SLICE: usize = 100000;
@@ -52,3 +54,5 @@ pub const UART_PRIORITY_ADDRESS: usize = PLIC + UART_ID * 4;
 pub const PLIC_S_MODE_ENABLE: usize = PLIC + 0x2080;
 pub const PLIC_S_MODE_THRESHOLD: usize = PLIC + 0x201000;
 pub const PLIC_S_MODE_CLAIM: usize = PLIC + 0x201004;
+
+pub const ROOT_INODE: NonZero<usize> = unsafe { NonZeroUsize::new_unchecked(1) };

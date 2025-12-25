@@ -174,7 +174,6 @@ pub fn supervisor_trap() {
     }
 }
 
-#[unsafe(no_mangle)]
 pub fn user_trap() {
     unsafe {
         riscv::register::stvec::write(riscv::register::stvec::Stvec::new(
@@ -253,7 +252,6 @@ pub fn handle_interrupts(cause: Scause) {
     }
 }
 
-#[unsafe(no_mangle)]
 pub fn handle_exceptions(cause: Scause) {
     if cause.cause() == Trap::Exception(Exception::UserEnvCall as usize) {
         syscall::handle();

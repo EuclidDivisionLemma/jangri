@@ -40,7 +40,6 @@ pub fn align_to_page_size(size: usize) -> usize {
     ceil(size as f64 / PAGE_SIZE as f64) as usize * PAGE_SIZE
 }
 
-#[unsafe(no_mangle)]
 pub fn initialise_kernel_page_table() -> Result<()> {
     unsafe {
         KERNEL_PAGE_TABLE = allocate(1)?;
@@ -133,7 +132,6 @@ pub fn map_trampoline(
     Ok(())
 }
 
-#[unsafe(no_mangle)]
 pub fn map_pages(
     page_table: usize,
     mut virtual_address: usize,
@@ -189,7 +187,6 @@ pub fn map_pages(
 }
 
 /// Returns the address of the page table entry corresponding to the given virtual address.
-#[unsafe(no_mangle)]
 pub fn get_page_table_entry_address(
     mut page_table: usize,
     virtual_address: usize,
@@ -246,22 +243,19 @@ pub fn map_kernel_stack() {
             }
         }
         unsafe {
-            match map(
+            map(
                 KERNEL_PAGE_TABLE,
                 TRAMPOLINE - (i + 1) * 2 * PAGE_SIZE,
                 physical_address,
                 PAGE_SIZE,
                 READ_WRITE,
-            ) {
-                Ok(_) => (),
-                Err(e) => e.log(true),
-            }
+            )
+            .unwrap()
         }
     }
 }
 
 /// Translates a virtual address to a physical address using the given page table.
-#[unsafe(no_mangle)]
 pub fn translate_virtual_address(page_table: usize, va: usize) -> Result<usize> {
     let aligned_virtual_address = floor(va as f64 / PAGE_SIZE as f64) as usize * PAGE_SIZE;
     let offset = va - aligned_virtual_address;
@@ -276,3 +270,5 @@ pub fn translate_virtual_address(page_table: usize, va: usize) -> Result<usize> 
 
     Ok(page_table_entry_to_physical_address(page_table_entry) + offset)
 }
+
+pub fn copy_from_va(dest: *mut u8, src: *mut u8, page_table: usize) {}

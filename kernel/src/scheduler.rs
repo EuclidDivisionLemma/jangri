@@ -73,7 +73,6 @@ global_asm!(
     "#
 );
 
-#[unsafe(no_mangle)]
 pub fn schedule() -> ! {
     loop {
         let mut found = false;

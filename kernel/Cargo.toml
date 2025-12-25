@@ -4,13 +4,9 @@ version = "0.0.1"
 edition = "2024"
 
 [dependencies]
+ringbuffer = "0.16.0"
 riscv = "0.15.0"
 
-[profile.release]
-panic = "abort"
-
-[profile.dev]
-panic = "abort"
 
 [dependencies.elf]
 version = "0.8.0"

@@ -1,11 +1,10 @@
 use core::panic::PanicInfo;
 
-use alloc::format;
-
-use crate::{drivers::uart::console_write, syscall::stdout};
-
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
+    use crate::syscall::stdout;
+    use alloc::format;
+
     stdout(&format!("PANIC: {}", info.message()));
     loop {}
 }

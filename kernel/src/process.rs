@@ -1,29 +1,25 @@
 use crate::{
+    DEVICE,
     allocator::allocate,
     constants::{
         HEAP_PAGES, KERNEL_PAGE_TABLE, MAXIMUM_PROCESS, PAGE_SIZE, READ_EXECUTE, READ_WRITE,
-        STACK_PAGES, Sv48, TRAMPOLINE, TRAMPOLINE_CODE_ADDRESS, TRAMPOLINE_OFFSET, TRAPFRAME,
-        USER_MODE,
+        ROOT_INODE, STACK_PAGES, Sv48, TRAMPOLINE, TRAMPOLINE_CODE_ADDRESS, TRAMPOLINE_OFFSET,
+        TRAPFRAME, USER_MODE,
     },
     error::{Error, Result},
+    fs::sfs::{MemoryINode, read_inode},
     scheduler::{Context, switch_to_scheduler_context},
     traps::{TrapFrame, set_up_supervisor_to_user_mode_transition, user_trap},
     vm::{map, map_trampoline},
 };
 use alloc::{
     boxed::Box,
+    rc::Rc,
     sync::{Arc, Weak},
     vec::Vec,
 };
-use core::{
-    arch::{asm, global_asm},
-    cell::LazyCell,
-    f64::math::ceil,
-    mem::transmute,
-    ptr,
-};
+use core::{arch::global_asm, cell::LazyCell, f64::math::ceil, mem::transmute, ptr};
 use elf::{ElfBytes, endian::NativeEndian};
-use riscv::register::satp::{Mode, Satp};
 
 global_asm!(
     r#"
@@ -69,6 +65,7 @@ pub enum ProcessState {
     Waiting,
     Terminated,
     NotUsed,
+    Sleeping,
 }
 
 pub struct Process<'a> {
@@ -82,6 +79,8 @@ pub struct Process<'a> {
     pub page_table: usize,
     pub code: usize,
     pub trapframe: Option<Box<TrapFrame>>,
+    pub sleep_on: Option<usize>,
+    pub cwd: Rc<MemoryINode>,
 }
 
 impl<'a> Process<'a> {
@@ -97,6 +96,8 @@ impl<'a> Process<'a> {
             page_table: 0,
             code: 0,
             trapframe: None,
+            sleep_on: None,
+            cwd: read_inode(ROOT_INODE, &DEVICE),
         }
     }
 }
@@ -112,7 +113,6 @@ pub fn yield_cpu() {
     switch_to_scheduler_context();
 }
 
-#[unsafe(no_mangle)]
 pub fn assign_process() -> Result<&'static mut Process<'static>> {
     let page_table = allocate(1)?;
     let trapframe = allocate(1)?;
@@ -136,7 +136,6 @@ pub fn assign_process() -> Result<&'static mut Process<'static>> {
     Err(Error::NoUnusedProcess)
 }
 
-#[unsafe(no_mangle)]
 pub fn map_code_pages(page_table: usize, code_pa: usize, code_va: usize, num_code_pages: usize) {
     if code_va == TRAMPOLINE {
         panic!("PROCESS CREATION FAILED - CODE SEGMENT CANNOT BE MAPPED TO TRAMPOLINE ADDRESS");
@@ -213,7 +212,6 @@ pub fn map_other_pages(page_table: usize, final_code: usize, process: &mut Proce
     Ok(())
 }
 
-#[unsafe(no_mangle)]
 pub fn start_init_1() {
     let start = unsafe { &process_1_start as *const usize as usize };
     let end = unsafe { &process_1_end as *const usize as usize };
@@ -341,7 +339,6 @@ pub fn start_init_2() {
 }
 
 /// This function is called when a process has to be executed for the first time.
-#[unsafe(no_mangle)]
 pub fn prepare_first_time_execution() {
     let process = unsafe {
         &mut **CURRENT_PROCESS
@@ -360,5 +357,23 @@ pub fn prepare_first_time_execution() {
     unsafe {
         let return_to_user_mode_ptr: fn(usize) -> ! = transmute(TRAMPOLINE + TRAMPOLINE_OFFSET);
         return_to_user_mode_ptr((&raw const **trapframe).addr());
+    }
+}
+
+impl<'a> Process<'a> {
+    pub fn sleep(&mut self, sleep_on: usize) {
+        self.sleep_on = Some(sleep_on);
+        self.state = ProcessState::Sleeping;
+    }
+}
+
+pub fn wake_up(sleep_on: usize) {
+    for process in unsafe { &mut *PROCESSES } {
+        if let Some(v) = process.sleep_on {
+            if v == sleep_on {
+                process.sleep_on = None;
+                process.state = ProcessState::Ready;
+            }
+        }
     }
 }
