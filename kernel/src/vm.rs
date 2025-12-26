@@ -257,8 +257,8 @@ pub fn map_kernel_stack() {
 
 /// Translates a virtual address to a physical address using the given page table.
 pub fn translate_virtual_address(page_table: usize, va: usize) -> Result<usize> {
-    let aligned_virtual_address = floor(va as f64 / PAGE_SIZE as f64) as usize * PAGE_SIZE;
-    let offset = va - aligned_virtual_address;
+    let aligned_virtual_address = (va / PAGE_SIZE) * PAGE_SIZE;
+    let offset = va.saturating_sub(aligned_virtual_address);
     let page_table_entry_address = get_page_table_entry_address(page_table, va, false)?;
     let page_table_entry = unsafe { *(page_table_entry_address as *const usize) };
 
