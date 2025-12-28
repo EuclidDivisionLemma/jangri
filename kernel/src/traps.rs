@@ -13,7 +13,7 @@ use riscv::{
 
 use crate::{
     constants::{TIME_SLICE, TRAMPOLINE, TRAMPOLINE_OFFSET, TRAPFRAME, UART_ID},
-    drivers::uart,
+    drivers::uart::{self, console_write},
     error::{Error, Result},
     plic,
     process::{CURRENT_PROCESS, yield_cpu},
@@ -104,7 +104,7 @@ pub struct TrapFrame {
     s1: usize,     // 64
     pub a0: usize, // 72
     pub a1: usize, // 80
-    a2: usize,     // 88
+    pub a2: usize, // 88
     a3: usize,     // 96
     a4: usize,     // 104
     a5: usize,     // 112
@@ -133,6 +133,7 @@ pub struct TrapFrame {
     pub kernel_stack: usize, // 264
     pub kernel_page_table: usize, // 272
     pub user_trap_address: usize, // 280
+    pub satp: usize,       // 288
 }
 
 pub fn initialise_traps() {
@@ -255,5 +256,7 @@ pub fn handle_interrupts(cause: Scause) {
 pub fn handle_exceptions(cause: Scause) {
     if cause.cause() == Trap::Exception(Exception::UserEnvCall as usize) {
         syscall::handle();
+    } else {
+        panic!("{:?}", cause);
     }
 }

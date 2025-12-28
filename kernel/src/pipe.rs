@@ -18,6 +18,7 @@ use crate::process::{self, CURRENT_PROCESS};
 
 pub const PIPE_SIZE: usize = 1024;
 
+#[derive(Debug)]
 pub struct Pipe {
     data: RefCell<AllocRingBuffer<u8>>,
     read_end_open: Cell<bool>,
@@ -35,13 +36,13 @@ pub fn allocate_pipe(reader: &Rc<File>, writer: &Rc<File>) -> Rc<Pipe> {
         write_offset: Cell::new(0),
     });
 
-    reader.file_type.set(FileType::Pipe(pipe.clone()));
-    reader.readable.set(true);
-    reader.writeable.set(false);
+    *reader.file_type.borrow_mut() = FileType::Pipe(pipe.clone());
+    *reader.readable.borrow_mut() = true;
+    *reader.writeable.borrow_mut() = false;
 
-    writer.file_type.set(FileType::Pipe(pipe.clone()));
-    writer.readable.set(false);
-    writer.writeable.set(true);
+    *writer.file_type.borrow_mut() = FileType::Pipe(pipe.clone());
+    *writer.readable.borrow_mut() = false;
+    *writer.writeable.borrow_mut() = true;
 
     pipe
 }
@@ -50,6 +51,10 @@ impl Pipe {
     pub fn write(&self, buffer: &[u8]) -> Result<()> {
         if self.write_end_open.get() == false {
             return Err(Error::PipeWriterClosed);
+        }
+
+        if self.read_end_open.get() == false {
+            return Err(Error::PipeReaderClosed);
         }
 
         for i in 0..buffer.len() {

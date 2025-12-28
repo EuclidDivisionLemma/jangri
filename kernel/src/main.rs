@@ -5,6 +5,7 @@
 #![feature(str_from_raw_parts)]
 #![feature(map_try_insert)]
 #![feature(if_let_guard)]
+#![feature(guard_patterns)]
 
 use core::arch::global_asm;
 
@@ -19,8 +20,8 @@ use crate::{
         ram_disk::RamDisk,
         uart::{console_write, initialise_uart},
     },
-    file::{allocate_file, create_fs_file, traverse_path},
-    fs::sfs::{self, DiskINode, initialise_root, read_inode},
+    file::{allocate_file, create_file, exists, traverse_path},
+    fs::sfs::{self, DiskINode, flush_data_blocks, flush_inodes, read_inode},
     pipe::allocate_pipe,
     plic::initialise_plic,
     process::{start_init_1, start_init_2},
@@ -91,13 +92,15 @@ fn main() -> ! {
 
     initialise_plic();
     initialise_uart();
+    fs::initialise();
 
     console_write("\x1b[2J\x1b[HJangri v0.0.1\n");
-    start_init_1();
-    start_init_2();
 
-    fs::sfs::initialise(&DEVICE);
-    initialise_root(&DEVICE);
+    file::open("/dev/stdin", true, false, false, false, false, false).unwrap();
+    file::open("/dev/stdout", false, true, false, false, false, false).unwrap();
+    file::open("/dev/stderr", false, true, false, false, false, false).unwrap();
+
+    start_init_1();
 
     schedule();
 }

@@ -1,6 +1,12 @@
 use core::fmt::Display;
 
-use alloc::string::{String, ToString};
+use alloc::{
+    format,
+    rc::Rc,
+    string::{String, ToString},
+};
+
+use crate::fs::sfs::{DiskINode, MemoryINode};
 
 pub type Result<T> = core::result::Result<T, Error>;
 
@@ -25,6 +31,7 @@ pub enum Error {
     PageTableEntryNotAccessibleInUserMode,
 
     PipeWriterClosed,
+    PipeReaderClosed,
 
     NoFreeINode,
     NoFreeDataBlock,
@@ -41,6 +48,8 @@ pub enum Error {
     InvalidPath,
     NotADirectory { name: String },
     FileAlreadyExists { path: String },
+    FreeInode { inode: DiskINode },
+    FileDoesNotExist { path: String },
 }
 
 impl Display for Error {
@@ -86,6 +95,14 @@ impl Display for Error {
             Error::FileAlreadyExists { path } => {
                 &("File System Error: File already exists: ".to_string() + path + "\n\n")
             }
+            Error::FreeInode { inode } => {
+                &("File System Error: Attempt to perform an operation a free inode: ".to_string()
+                    + &format!("{:?}\n\n", inode))
+            }
+            Error::FileDoesNotExist { path } => {
+                &("File System Error: File does not exist: ".to_string() + path + "\n\n")
+            }
+            Error::PipeReaderClosed => "Pipe Error: Read end of pipe is closed\n\n",
         };
         write!(f, "{}", text)
     }

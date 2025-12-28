@@ -1,6 +1,7 @@
 ENTRY(entry)
 . = 0x80200000;
 
+
 SECTIONS
 {
     PROVIDE(kernel_start = .);

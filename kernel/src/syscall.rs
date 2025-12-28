@@ -1,16 +1,32 @@
-use core::{arch::asm, slice, str};
+use core::{arch::asm, ffi::c_int, ptr::slice_from_raw_parts_mut};
 
 use crate::{
-    drivers::uart::console_write, process::CURRENT_PROCESS, vm::translate_virtual_address,
+    file::{FILES, allocate_file},
+    pipe::allocate_pipe,
+    process::CURRENT_PROCESS,
+    traps::TrapFrame,
+    vm::translate_virtual_address,
 };
 
-pub enum SyscallErrors {
-    StringInvalid = 2,
-    UnknownSyscall = 1,
-}
+pub mod io;
 
-pub enum SyscallNumbers {
-    Stdout = 0,
+pub const SYSCALLS: [(Syscall, fn(&TrapFrame) -> usize); 6] = [
+    (Syscall::Open, io::open),
+    (Syscall::Read, io::read),
+    (Syscall::Write, io::write),
+    (Syscall::Close, io::close),
+    (Syscall::Lseek, io::lseek),
+    (Syscall::Pipe, pipe),
+];
+
+#[derive(PartialEq, Eq, PartialOrd, Ord)]
+pub enum Syscall {
+    Open = 100,
+    Read = 200,
+    Write = 300,
+    Close = 400,
+    Lseek = 500,
+    Pipe = 600,
 }
 
 pub fn stdout<'a>(text: &'a str) {
@@ -44,31 +60,33 @@ pub fn handle() {
             riscv::interrupt::supervisor::enable();
         }
 
-        if syscall_no == SyscallNumbers::Stdout as usize {
-            let length = trapframe.a1;
-            let ptr = match translate_virtual_address(process.page_table, trapframe.a0) {
-                Ok(p) => p,
-                Err(_) => {
-                    trapframe.a0 = SyscallErrors::StringInvalid as usize;
-                    return;
-                }
-            };
-
-            let s = match unsafe { str::from_utf8(slice::from_raw_parts(ptr as *const u8, length)) }
-            {
-                Ok(s) => s,
-                Err(_) => {
-                    trapframe.a0 = SyscallErrors::StringInvalid as usize;
-                    return;
-                }
-            };
-
-            console_write(s);
-            trapframe.a0 = 0;
-        } else {
-            trapframe.a0 = SyscallErrors::UnknownSyscall as usize;
+        for (no, handler) in SYSCALLS {
+            if syscall_no == no as usize {
+                trapframe.a0 = handler(&trapframe);
+                return;
+            }
         }
+        trapframe.a0 = -1isize as usize;
     } else {
         panic!("SYSCALLd, BUT NO RUNNING PROCESS")
     }
+}
+
+pub fn pipe(trapframe: &TrapFrame) -> usize {
+    let writer = allocate_file();
+    let reader = allocate_file();
+
+    let _ = allocate_pipe(&reader, &writer);
+
+    let fds = unsafe {
+        &mut *slice_from_raw_parts_mut(
+            translate_virtual_address(trapframe.page_table, trapframe.a0).unwrap() as *mut c_int,
+            2,
+        )
+    };
+
+    fds[0] = reader.fd as c_int;
+    fds[1] = writer.fd as c_int;
+
+    0
 }

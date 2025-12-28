@@ -64,7 +64,7 @@ return_to_user_mode:
     sfence.vma
 
     # load user page table
-    ld a1, 256(a0)
+    ld a1, 288(a0)
 
     csrw satp, a1
 
@@ -109,7 +109,5 @@ return_to_user_mode:
     ld t6, 240(a0)
 
     ld a0, 72(a0)
-    csrw scause, zero
-    csrw stval, zero
 
     sret

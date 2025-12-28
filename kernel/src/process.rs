@@ -2,9 +2,9 @@ use crate::{
     DEVICE,
     allocator::allocate,
     constants::{
-        HEAP_PAGES, KERNEL_PAGE_TABLE, MAXIMUM_PROCESS, PAGE_SIZE, READ_EXECUTE, READ_WRITE,
-        ROOT_INODE, STACK_PAGES, Sv48, TRAMPOLINE, TRAMPOLINE_CODE_ADDRESS, TRAMPOLINE_OFFSET,
-        TRAPFRAME, USER_MODE,
+        EXECUTE_ONLY, HEAP_PAGES, KERNEL_PAGE_TABLE, MAXIMUM_PROCESS, PAGE_SIZE, READ_EXECUTE,
+        READ_ONLY, READ_WRITE, ROOT_INODE, STACK_PAGES, Sv48, TRAMPOLINE, TRAMPOLINE_CODE_ADDRESS,
+        TRAMPOLINE_OFFSET, TRAPFRAME, USER_MODE, WRITE_ONLY,
     },
     error::{Error, Result},
     fs::sfs::{MemoryINode, read_inode},
@@ -28,7 +28,7 @@ global_asm!(
     .global process_1_end
 
     process_1_start:
-        .incbin "../build/process1"
+        .incbin "../userspace/sh.elf"
     process_1_end:
     "#
 );
@@ -124,7 +124,8 @@ pub fn assign_process() -> Result<&'static mut Process<'static>> {
 
             process.trapframe = Some(unsafe { Box::from_raw(trapframe as *mut TrapFrame) });
             **process.trapframe.as_mut().unwrap() = TrapFrame::default();
-            process.trapframe.as_mut().unwrap().page_table = Sv48 | (page_table >> 12);
+            process.trapframe.as_mut().unwrap().page_table = page_table;
+            process.trapframe.as_mut().unwrap().satp = Sv48 | page_table >> 12;
             process.trapframe.as_mut().unwrap().kernel_page_table =
                 Sv48 | (unsafe { KERNEL_PAGE_TABLE } >> 12);
             process.trapframe.as_mut().unwrap().user_trap_address = user_trap as usize;
@@ -136,7 +137,13 @@ pub fn assign_process() -> Result<&'static mut Process<'static>> {
     Err(Error::NoUnusedProcess)
 }
 
-pub fn map_code_pages(page_table: usize, code_pa: usize, code_va: usize, num_code_pages: usize) {
+pub fn map_code_pages(
+    page_table: usize,
+    code_pa: usize,
+    code_va: usize,
+    num_code_pages: usize,
+    permissions: usize,
+) {
     if code_va == TRAMPOLINE {
         panic!("PROCESS CREATION FAILED - CODE SEGMENT CANNOT BE MAPPED TO TRAMPOLINE ADDRESS");
     } else if code_va == TRAPFRAME {
@@ -147,7 +154,7 @@ pub fn map_code_pages(page_table: usize, code_pa: usize, code_va: usize, num_cod
         code_va,
         code_pa,
         num_code_pages * PAGE_SIZE,
-        READ_EXECUTE | USER_MODE,
+        permissions | USER_MODE,
     )
     .expect("PROCESS CREATION FAILED - ERROR WHILE MAPPING CODE PAGES");
 }
@@ -247,9 +254,23 @@ pub fn start_init_1() {
             let va = header.p_vaddr as usize;
             let flags = header.p_flags;
 
+            let mut permissions = 0;
+
+            if flags & elf::abi::PF_R == 1 {
+                permissions |= READ_ONLY;
+            }
+
+            if flags & elf::abi::PF_W == 1 {
+                permissions |= WRITE_ONLY;
+            }
+
+            if flags & elf::abi::PF_X == 1 {
+                permissions |= EXECUTE_ONLY;
+            }
+
             let loadable = &elf_bytes[offset..offset + file_size];
 
-            map_code_pages(process.page_table, page, va, num_pages);
+            map_code_pages(process.page_table, page, va, num_pages, permissions);
 
             unsafe {
                 ptr::copy_nonoverlapping(loadable.as_ptr(), page as *mut u8, file_size);
@@ -310,9 +331,23 @@ pub fn start_init_2() {
             let va = header.p_vaddr as usize;
             let flags = header.p_flags;
 
+            let mut permissions = 0;
+
+            if flags & elf::abi::PF_R != 0 {
+                permissions |= READ_ONLY;
+            }
+
+            if flags & elf::abi::PF_W != 0 {
+                permissions |= WRITE_ONLY;
+            }
+
+            if flags & elf::abi::PF_X != 0 {
+                permissions |= EXECUTE_ONLY;
+            }
+
             let loadable = &elf_bytes[offset..offset + file_size];
 
-            map_code_pages(process.page_table, page, va, num_pages);
+            map_code_pages(process.page_table, page, va, num_pages, permissions);
 
             unsafe {
                 ptr::copy_nonoverlapping(loadable.as_ptr(), page as *mut u8, file_size);

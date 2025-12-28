@@ -30,6 +30,7 @@ pub static mut KERNEL_PAGE_TABLE: usize = 0;
 // Page Permissions
 pub const READ_WRITE: usize = 0b0110;
 pub const READ_ONLY: usize = 0b10;
+pub const WRITE_ONLY: usize = 0b100;
 pub const EXECUTE_ONLY: usize = 0b1000;
 pub const USER_MODE: usize = 0b10000;
 pub const READ_EXECUTE: usize = 0b1010;
@@ -55,4 +56,4 @@ pub const PLIC_S_MODE_ENABLE: usize = PLIC + 0x2080;
 pub const PLIC_S_MODE_THRESHOLD: usize = PLIC + 0x201000;
 pub const PLIC_S_MODE_CLAIM: usize = PLIC + 0x201004;
 
-pub const ROOT_INODE: NonZero<usize> = unsafe { NonZeroUsize::new_unchecked(1) };
+pub const ROOT_INODE: NonZeroUsize = unsafe { NonZeroUsize::new_unchecked(1) };

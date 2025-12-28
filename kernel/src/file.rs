@@ -1,6 +1,11 @@
-use core::{array, cell::Cell, num::NonZeroUsize};
+use core::{
+    array,
+    cell::{Cell, RefCell},
+    num::NonZeroUsize,
+};
 
 use alloc::{
+    collections::btree_map::BTreeMap,
     format,
     rc::Rc,
     slice,
@@ -11,22 +16,29 @@ use alloc::{
 use crate::{
     DEVICE,
     constants::ROOT_INODE,
+    drivers::uart::console_write,
     error::{Error, Result},
     fs::sfs::{
-        DirectoryEntry, InodeEntry, MemoryINode, allocate_inode, read_inode, read_inode_data,
-        write_inode, write_inode_data,
+        DirectoryEntry, DiskINode, InodeEntry, MemoryINode, allocate_inode, read_inode,
+        read_inode_data, write_inode, write_inode_data,
     },
     pipe::Pipe,
     process::CURRENT_PROCESS,
 };
 
-pub static mut FILES: Vec<Rc<File>> = Vec::new();
+pub const STDIN: usize = 0;
+pub const STDOUT: usize = 1;
+pub const STDERR: usize = 2;
+
+pub static mut FILES: BTreeMap<usize, Rc<File>> = BTreeMap::new();
+static mut FD: usize = 0;
 
 pub enum FileType {
     Pipe(Rc<Pipe>),
     INode {
         inode: Rc<MemoryINode>,
         offset: usize,
+        append: bool,
     },
     Device {
         inode: Rc<MemoryINode>,
@@ -36,21 +48,24 @@ pub enum FileType {
 }
 
 pub struct File {
-    pub file_type: Cell<FileType>,
-    pub readable: Cell<bool>,
-    pub writeable: Cell<bool>,
+    pub file_type: RefCell<FileType>,
+    pub readable: RefCell<bool>,
+    pub writeable: RefCell<bool>,
     pub fd: usize,
 }
 
 pub fn allocate_file() -> Rc<File> {
     let file = Rc::new(File {
-        file_type: Cell::new(FileType::Free),
-        readable: Cell::new(false),
-        writeable: Cell::new(false),
-        fd: unsafe { FILES.len() },
+        file_type: RefCell::new(FileType::Free),
+        readable: RefCell::new(false),
+        writeable: RefCell::new(false),
+        fd: unsafe {
+            FD += 1;
+            FD - 1
+        },
     });
     unsafe {
-        FILES.push(file.clone());
+        FILES.insert(file.fd, file.clone());
     }
 
     file
@@ -101,6 +116,7 @@ pub fn search_in_directory(inode: &Rc<MemoryINode>, name: &str) -> Result<Rc<Mem
                 inode,
                 i * size_of::<DirectoryEntry>(),
                 size_of::<DirectoryEntry>(),
+                false,
                 &DEVICE,
             )?[..];
             let entry = unsafe { &*(bytes.as_ptr() as *const DirectoryEntry) };
@@ -115,9 +131,9 @@ pub fn search_in_directory(inode: &Rc<MemoryINode>, name: &str) -> Result<Rc<Mem
             )
             .expect("INVALID UTF-8 NAME IN search_in_directory")
                 == name
-                && entry.inum.get() != 0
+                && entry.inum != 0
             {
-                return Ok(read_inode(entry.inum, &DEVICE));
+                return Ok(read_inode(NonZeroUsize::new(entry.inum).unwrap(), &DEVICE));
             }
         }
     }
@@ -146,19 +162,17 @@ pub fn traverse_path(path: &str, parent: bool) -> Result<Rc<MemoryINode>> {
         };
     }
 
+    let mut path = path.to_string();
+    let mut name: String;
+
     loop {
-        let (path, name) = next_path_element(path);
+        (path, name) = next_path_element(&path);
 
         if path == "" && parent == true {
             break;
         }
 
-        let next = search_in_directory(&inode, &name);
-
-        match next {
-            Ok(v) => inode = v,
-            Err(e) => return Err(e),
-        }
+        inode = search_in_directory(&inode, &name)?;
 
         if path == "" {
             break;
@@ -176,7 +190,7 @@ pub fn exists(path: &str) -> Result<bool> {
     }
 }
 
-pub fn create_fs_file(path: &str, is_directory: bool) -> Result<NonZeroUsize> {
+pub fn create_file(path: &str, kind: InodeEntry) -> Result<NonZeroUsize> {
     if exists(path)? {
         return Err(Error::FileAlreadyExists {
             path: path.to_string(),
@@ -198,7 +212,7 @@ pub fn create_fs_file(path: &str, is_directory: bool) -> Result<NonZeroUsize> {
 
     let entry = DirectoryEntry {
         name: array::from_fn(|i| if i < name.len() { name[i] } else { 0 }),
-        inum: inum_of_file,
+        inum: inum_of_file.get(),
     };
 
     write_inode_data(
@@ -212,15 +226,71 @@ pub fn create_fs_file(path: &str, is_directory: bool) -> Result<NonZeroUsize> {
     )?;
 
     let mut file_inode = MemoryINode::default();
-    if is_directory {
-        file_inode.entry.set(InodeEntry::Directory);
-    } else {
-        file_inode.entry.set(InodeEntry::File);
-    }
-
+    file_inode.entry.set(kind);
+    file_inode.links.set(1);
     file_inode.inum = inum_of_file;
 
     write_inode(Rc::new(file_inode), &DEVICE, false)?;
 
     Ok(inum_of_file)
+}
+
+pub fn open(
+    path: &str,
+    readable: bool,
+    writeable: bool,
+    create: bool,
+    excl: bool,
+    truncate: bool,
+    append: bool,
+) -> Result<usize> {
+    if exists(path)? & create & excl {
+        return Err(Error::FileAlreadyExists {
+            path: path.to_string(),
+        });
+    }
+
+    let inode = match traverse_path(path, false) {
+        Ok(inode) => inode,
+        Err(e) => {
+            if let Error::NoSuchEntryInDirectory { name: _ } = e
+                && create
+            {
+                read_inode(create_file(path, InodeEntry::File)?, &DEVICE)
+            } else {
+                return Err(e);
+            }
+        }
+    };
+
+    let size = inode.size.get();
+
+    let file_type = match inode.entry.get() {
+        InodeEntry::File | InodeEntry::Directory => FileType::INode {
+            inode,
+            offset: if append & writeable { size } else { 0 },
+            append,
+        },
+        InodeEntry::Device => FileType::Device {
+            inode: inode.clone(),
+            major: inode.major.get(),
+        },
+        InodeEntry::SymLink => todo!(),
+        InodeEntry::None => {
+            return Err(Error::FreeInode {
+                inode: DiskINode::from(inode.as_ref()),
+            });
+        }
+    };
+
+    let file = allocate_file();
+    *file.file_type.borrow_mut() = file_type;
+    *file.readable.borrow_mut() = readable;
+    *file.writeable.borrow_mut() = writeable;
+
+    if truncate {
+        todo!()
+    }
+
+    Ok(file.fd)
 }

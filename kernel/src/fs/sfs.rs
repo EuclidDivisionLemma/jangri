@@ -75,7 +75,7 @@ pub enum InodeEntry {
 #[derive(Debug)]
 pub struct DirectoryEntry {
     pub name: [u8; FILE_NAME_SIZE],
-    pub inum: NonZeroUsize,
+    pub inum: usize,
 }
 
 #[repr(C)]
@@ -106,7 +106,7 @@ impl Default for MemoryINode {
 }
 
 #[repr(C)]
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct DiskINode {
     entry: InodeEntry,
     major: u8,
@@ -263,6 +263,21 @@ pub fn write_inode(inode: Rc<MemoryINode>, device: &dyn Storage, force: bool) ->
         inode.needs_write.set(true);
         unsafe {
             UNWRITTEN_INODES += 1;
+        }
+    }
+
+    let mut cached = false;
+
+    for i in unsafe { &INODE_CACHE } {
+        if i.inum == inode.inum {
+            cached = true;
+            break;
+        }
+    }
+
+    if !cached {
+        unsafe {
+            INODE_CACHE.push(inode.clone());
         }
     }
 
@@ -469,10 +484,22 @@ pub fn read_inode_data(
     inode: &Rc<MemoryINode>,
     byte_offset: usize,
     num_bytes: usize,
+    read_beyond_eof_intended: bool,
     device: &dyn Storage,
 ) -> Result<Vec<u8>> {
-    if byte_offset + num_bytes > inode.size.get() {
-        return Err(Error::ReadBeyondEOF);
+    if byte_offset >= inode.size.get() {
+        if !read_beyond_eof_intended {
+            return Err(Error::ReadBeyondEOF);
+        }
+
+        // `lseek` accepts offsets greater than file size,
+        // in such cases subsequent reads must return 0 bytes
+        write_inode_data(
+            inode,
+            inode.size.get(),
+            vec![0u8; byte_offset - num_bytes],
+            device,
+        )?;
     }
 
     let mut logical_block = byte_offset / BLOCK_SIZE;
@@ -649,59 +676,4 @@ pub fn initialise(device: &'static dyn Storage) {
     });
 }
 
-pub fn initialise_root(device: &'static dyn Storage) {
-    let inum = allocate_inode(device).expect("ROOT INITIALISATION ERROR - INODE ALLOCATION FAILED");
-    let inode = read_inode(inum, device);
-    inode.size.set(2 * size_of::<DirectoryEntry>());
-
-    inode.entry.set(InodeEntry::Directory);
-    inode.links.set(1);
-
-    let mut current: [u8; FILE_NAME_SIZE] = [0; FILE_NAME_SIZE];
-    let mut parent: [u8; FILE_NAME_SIZE] = [0; FILE_NAME_SIZE];
-
-    unsafe {
-        ptr::copy_nonoverlapping(
-            &raw const ".".as_bytes()[..] as *const u8,
-            current.as_mut_ptr(),
-            ".".len(),
-        );
-
-        ptr::copy_nonoverlapping(
-            &raw const "..".as_bytes()[..] as *const u8,
-            parent.as_mut_ptr(),
-            "..".len(),
-        );
-    }
-
-    let current = DirectoryEntry {
-        name: current,
-        inum,
-    };
-    let parent = DirectoryEntry { name: parent, inum };
-
-    let mut buffer = [0; 2 * size_of::<DirectoryEntry>()];
-
-    unsafe {
-        ptr::copy_nonoverlapping(
-            &raw const current as *const u8,
-            buffer[0..size_of::<DirectoryEntry>()].as_mut_ptr(),
-            size_of::<DirectoryEntry>(),
-        );
-
-        ptr::copy_nonoverlapping(
-            &raw const parent as *const u8,
-            buffer[size_of::<DirectoryEntry>()..].as_mut_ptr(),
-            size_of::<DirectoryEntry>(),
-        );
-    }
-    write_inode(inode.clone(), device, true)
-        .expect("ERROR WHILE INITIALISING ROOT - INODE WRITE FAILED");
-
-    write_inode_data(&inode, 0, buffer.to_vec(), device)
-        .expect("ERROR WHILE INITIALISING ROOT - INODE DATA WRITE FAILED");
-
-    flush_data_blocks(device, true);
-
-    inode.needs_write.set(true);
-}
+pub fn free_inode(inode: &Rc<MemoryINode>) {}
