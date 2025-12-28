@@ -256,15 +256,15 @@ pub fn start_init_1() {
 
             let mut permissions = 0;
 
-            if flags & elf::abi::PF_R == 1 {
+            if flags & elf::abi::PF_R != 0 {
                 permissions |= READ_ONLY;
             }
 
-            if flags & elf::abi::PF_W == 1 {
+            if flags & elf::abi::PF_W != 0 {
                 permissions |= WRITE_ONLY;
             }
 
-            if flags & elf::abi::PF_X == 1 {
+            if flags & elf::abi::PF_X != 0 {
                 permissions |= EXECUTE_ONLY;
             }
 

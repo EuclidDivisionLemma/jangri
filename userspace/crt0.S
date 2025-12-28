@@ -1,7 +1,6 @@
 .global _start
 
 _start:
-
     # initialise libc
     jal __libc_init_array
 

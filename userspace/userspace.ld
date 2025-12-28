@@ -1,11 +1,5 @@
 ENTRY(_start)
 
-
-MEMORY
-{
-    RAM(rwx) : ORIGIN = 0x0, LENGTH = 0xffffffffffffffff
-}
-
 SECTIONS
 {
 
