@@ -92,10 +92,6 @@ pub fn console_write_bytes(bytes: &[u8]) {
         if *byte == '\n' as u8 || *byte == '\r' as u8 {
             write_char('\n' as u8);
             write_char('\r' as u8);
-
-            unsafe {
-                READ = false;
-            }
         } else if *byte == 0x7f || *byte == 0x08 {
             write_char_waiting(0x7f);
             write_char_waiting(' ' as u8);

@@ -125,7 +125,7 @@ pub fn open(trapframe: &TrapFrame) -> usize {
             if mode & Flag::O_RDONLY as usize != 0 {
                 return -Error::EINVAL as usize;
             }
-            append = false;
+            append = true;
         }
         if flag & Flag::O_EXCL as usize != 0 {
             excl = true;
@@ -182,10 +182,10 @@ pub fn write(trapframe: &TrapFrame) -> usize {
                 return -Error::EACCES as usize;
             } else if fd == STDOUT {
                 console_write_bytes(&buffer);
-                return 0;
+                return num_bytes;
             } else if fd == STDERR {
                 console_write_bytes(&buffer);
-                return 0;
+                return num_bytes;
             } else {
                 if *file.writeable.borrow() == false {
                     return -Error::EACCES as usize;
@@ -233,7 +233,7 @@ pub fn write(trapframe: &TrapFrame) -> usize {
                                     other => panic!("ERROR DURING SYSCALL WRITE - {}", other),
                                 }
                             }
-                            0
+                            num_bytes
                         } else {
                             -Error::ENXIO as usize
                         }
@@ -275,6 +275,10 @@ pub fn read(trapframe: &TrapFrame) -> usize {
             riscv::interrupt::supervisor::disable();
             if let Some(ch) = unsafe { INPUT_BUFFER.dequeue() } {
                 if ch == '\n' as u8 {
+                    if read < num_bytes {
+                        buffer[read] = '\n' as u8;
+                        read += 1;
+                    }
                     break;
                 } else if ch == 0x7f || ch == 0x08 {
                     if read > 0 {
@@ -296,7 +300,9 @@ pub fn read(trapframe: &TrapFrame) -> usize {
         buffer[read..num_bytes].fill(0);
 
         riscv::interrupt::supervisor::disable();
-
+        unsafe {
+            READ = false;
+        }
         unsafe {
             riscv::interrupt::supervisor::enable();
         }
