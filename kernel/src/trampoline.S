@@ -46,9 +46,14 @@ handle_traps_from_user_mode:
     csrr t0, sscratch
     sd t0, 72(a0)
 
+
+    ld sp, 264(a0) # Set sp to point to the process's kernel stack
+    li t0, 4096
+    add sp, sp, t0
+
     # load the kernel page table address
     ld t0, 272(a0)
-    ld sp, 264(a0) # Set sp to point to the process's kernel stack
+
     ld t1, 280(a0) # load the address of usertrap()
 
     sfence.vma
