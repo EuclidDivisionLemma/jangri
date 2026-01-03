@@ -7,7 +7,11 @@ use core::{
     str,
 };
 
-use alloc::{slice, string::String, vec, vec::Vec};
+use alloc::{
+    format, slice,
+    string::String,
+    vec::{self, Vec},
+};
 use ringbuffer::RingBuffer;
 use riscv::register::satp::Mode;
 
@@ -73,7 +77,8 @@ impl Neg for Error {
 }
 
 pub fn open(trapframe: &TrapFrame) -> usize {
-    let ptr = translate_virtual_address(trapframe.page_table, trapframe.a0).unwrap() as *const u8;
+    let ptr = translate_virtual_address(trapframe.page_table, trapframe.a0)
+        .unwrap_or_else(|e| panic!("OPEN FAILED - {}", e)) as *const u8;
     let flag = trapframe.a1;
 
     let mut path = Vec::new();
@@ -171,8 +176,9 @@ pub fn write(trapframe: &TrapFrame) -> usize {
     let num_bytes = trapframe.a2;
 
     let buffer = unsafe {
-        slice::from_raw_parts_mut(
-            translate_virtual_address(trapframe.page_table, trapframe.a1).unwrap() as *mut u8,
+        slice::from_raw_parts(
+            translate_virtual_address(trapframe.page_table, trapframe.a1)
+                .unwrap_or_else(|e| panic!("WRITE FAILED - {}", e)) as *mut u8,
             num_bytes,
         )
     };
@@ -253,7 +259,8 @@ pub fn read(trapframe: &TrapFrame) -> usize {
 
     let buffer = unsafe {
         slice::from_raw_parts_mut(
-            translate_virtual_address(trapframe.page_table, trapframe.a1).unwrap() as *mut u8,
+            translate_virtual_address(trapframe.page_table, trapframe.a1)
+                .unwrap_or_else(|e| panic!("READ FAILED: {}", e)) as *mut u8,
             num_bytes,
         )
     };

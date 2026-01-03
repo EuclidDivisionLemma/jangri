@@ -50,6 +50,7 @@ pub enum Error {
     FileAlreadyExists { path: String },
     FreeInode { inode: DiskINode },
     FileDoesNotExist { path: String },
+    InvalidHeapSize,
 }
 
 impl Display for Error {
@@ -103,6 +104,7 @@ impl Display for Error {
                 &("File System Error: File does not exist: ".to_string() + path + "\n\n")
             }
             Error::PipeReaderClosed => "Pipe Error: Read end of pipe is closed\n\n",
+            Error::InvalidHeapSize => "Heap Error: Invalid heap size requested\n\n",
         };
         write!(f, "{}", text)
     }

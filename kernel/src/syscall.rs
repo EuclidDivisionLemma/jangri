@@ -1,22 +1,25 @@
 use core::{arch::asm, ffi::c_int, ptr::slice_from_raw_parts_mut};
 
+use alloc::format;
+
 use crate::{
     file::{FILES, allocate_file},
     pipe::allocate_pipe,
     process::CURRENT_PROCESS,
     traps::TrapFrame,
-    vm::translate_virtual_address,
+    vm::{self, translate_virtual_address},
 };
 
 pub mod io;
 
-pub const SYSCALLS: [(Syscall, fn(&TrapFrame) -> usize); 6] = [
+pub const SYSCALLS: [(Syscall, fn(&TrapFrame) -> usize); 7] = [
     (Syscall::Open, io::open),
     (Syscall::Read, io::read),
     (Syscall::Write, io::write),
     (Syscall::Close, io::close),
     (Syscall::Lseek, io::lseek),
     (Syscall::Pipe, pipe),
+    (Syscall::Sbrk, sbrk),
 ];
 
 #[derive(PartialEq, Eq, PartialOrd, Ord)]
@@ -27,6 +30,7 @@ pub enum Syscall {
     Close = 400,
     Lseek = 500,
     Pipe = 600,
+    Sbrk = 700,
 }
 
 pub fn stdout<'a>(text: &'a str) {
@@ -89,4 +93,25 @@ pub fn pipe(trapframe: &TrapFrame) -> usize {
     fds[1] = writer.fd as c_int;
 
     0
+}
+
+pub fn sbrk(trapframe: &TrapFrame) -> usize {
+    enum Error {
+        ENOMEM,
+    }
+    let increment = trapframe.a0 as isize;
+
+    if increment == 0 {
+        trapframe.brk.get()
+    } else if increment < 0 {
+        panic!("NEGATIVE INCREMENT NOT ALLOWED YET!")
+    } else {
+        match vm::allocate_heap(increment, trapframe) {
+            Ok(old_brk) => old_brk,
+            Err(e) if e == crate::error::Error::InvalidHeapSize => {
+                -(Error::ENOMEM as isize) as usize
+            }
+            Err(e) => panic!("HEAP ALLOCATION FAILED: {}", e),
+        }
+    }
 }

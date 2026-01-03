@@ -267,7 +267,7 @@ pub fn open(
 
     let file_type = match inode.entry.get() {
         InodeEntry::File | InodeEntry::Directory => FileType::INode {
-            inode,
+            inode: inode.clone(),
             offset: if append & writeable { size } else { 0 },
             append,
         },
@@ -289,7 +289,7 @@ pub fn open(
     *file.writeable.borrow_mut() = writeable;
 
     if truncate {
-        todo!()
+        inode.size.set(0);
     }
 
     Ok(file.fd)

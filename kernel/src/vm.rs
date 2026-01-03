@@ -277,4 +277,45 @@ pub fn translate_virtual_address(page_table: usize, va: usize) -> Result<usize> 
     Ok(page_table_entry_to_physical_address(page_table_entry) + offset)
 }
 
-pub fn copy_from_va(dest: *mut u8, src: *mut u8, page_table: usize) {}
+pub fn allocate_heap(increment: isize, trapframe: &TrapFrame) -> Result<usize> {
+    if ((trapframe.brk.get() as isize + increment as isize) < 0)
+        || (trapframe.brk.get() as i128 + increment as i128) >= isize::MAX as i128
+    {
+        Err(error::Error::InvalidHeapSize)
+    } else {
+        if trapframe.brk.get() as isize + increment >= trapframe.heap_end.get() as isize {
+            if trapframe.brk.get() as i128 >= (TRAMPOLINE - 12 * PAGE_SIZE) as i128 {
+                return Err(error::Error::InvalidHeapSize);
+            }
+            let num_pages = (increment as usize + PAGE_SIZE - 1) / PAGE_SIZE;
+
+            if (trapframe.heap_end.get() as i128 + (num_pages * PAGE_SIZE) as i128)
+                >= isize::MAX as i128
+            {
+                return Err(error::Error::InvalidHeapSize);
+            }
+
+            let pa = allocate(num_pages)?;
+            map(
+                trapframe.page_table,
+                trapframe.heap_end.get(),
+                pa,
+                num_pages * PAGE_SIZE,
+                READ_WRITE | USER_MODE,
+            )?;
+
+            let old = trapframe.brk.get();
+
+            trapframe
+                .heap_end
+                .set(trapframe.heap_end.get() + num_pages * PAGE_SIZE);
+            trapframe.brk.set(trapframe.brk.get() + increment as usize);
+
+            Ok(old)
+        } else {
+            let old = trapframe.brk.get();
+            trapframe.brk.set(old + increment as usize);
+            Ok(old)
+        }
+    }
+}

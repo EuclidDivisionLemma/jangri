@@ -135,6 +135,9 @@ pub struct TrapFrame {
     pub kernel_page_table: usize, // 272
     pub user_trap_address: usize, // 280
     pub satp: usize,       // 288
+
+    pub heap_end: Cell<usize>,
+    pub brk: Cell<usize>,
 }
 
 pub fn initialise_traps() {

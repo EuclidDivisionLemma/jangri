@@ -1,17 +1,16 @@
 #include <errno.h>
+#include <stddef.h>
+#include <stdio.h>
 #include <sys/types.h>
 #include <sys/unistd.h>
 
 int open(const char* path, int flag)
 {
-    asm volatile("li a7, 100");
-    asm volatile("mv a0, %0" ::"r"(path));
-    asm volatile("mv a1, %0" ::"r"(flag));
-    asm volatile("ecall");
+    register ssize_t a7 asm("a7") = 100;
+    register ssize_t a0 asm("a0") = (size_t)path;
+    register ssize_t a1 asm("a1") = flag;
 
-    size_t a0;
-
-    asm volatile("mv %0, a0" : "=r"(a0));
+    asm volatile("ecall" : "+r"(a0) : "r"(a7), "r"(a1) : "memory");
 
     if (a0 >= 0)
     {
@@ -24,14 +23,11 @@ int open(const char* path, int flag)
 
 int close(int fd)
 {
-    asm volatile("li a7, 400\n"
-                 "mv a0, %0\n"
-                 "ecall"
-                 :
-                 : "r"(fd));
 
-    size_t a0;
-    asm volatile("mv %0, a0" : "=r"(a0));
+    register ssize_t a0 asm("a0") = fd;
+    register ssize_t a7 asm("a7") = 400;
+
+    asm volatile("ecall" : "+r"(a0) : "r"(a7) : "memory");
 
     if (a0 >= 0)
         return a0;
@@ -42,15 +38,12 @@ int close(int fd)
 
 ssize_t read(int fd, void* buf, size_t num_bytes)
 {
-    asm volatile("li a7, 200\n"
-                 "mv a0, %0\n"
-                 "mv a1, %1\n"
-                 "mv a2, %2\n"
-                 "ecall"
-                 :
-                 : "r"(fd), "r"(buf), "r"(num_bytes));
-    size_t a0;
-    asm volatile("mv %0, a0" : "=r"(a0));
+    register ssize_t a0 asm("a0") = fd;
+    register ssize_t a7 asm("a7") = 200;
+    register ssize_t a1 asm("a1") = (ssize_t)buf;
+    register ssize_t a2 asm("a2") = num_bytes;
+
+    asm volatile("ecall" : "+r"(a0) : "r"(a7), "r"(a1), "r"(a2) : "memory");
 
     if (a0 >= 0)
         return a0;
@@ -61,16 +54,12 @@ ssize_t read(int fd, void* buf, size_t num_bytes)
 
 ssize_t write(int fd, const void* buf, size_t num_bytes)
 {
-    asm volatile("li a7, 300\n"
-                 "mv a0, %0\n"
-                 "mv a1, %1\n"
-                 "mv a2, %2\n"
-                 "ecall"
-                 :
-                 : "r"(fd), "r"(buf), "r"(num_bytes));
+    register size_t a7 asm("a7") = 300;
+    register ssize_t a0 asm("a0") = fd;
+    register const void* a1 asm("a1") = buf;
+    register size_t a2 asm("a2") = num_bytes;
 
-    size_t a0;
-    asm volatile("mv %0, a0" : "=r"(a0));
+    asm volatile("ecall" : "+r"(a0) : "r"(a7), "r"(a1), "r"(a2) : "memory");
 
     if (a0 >= 0)
         return a0;
@@ -81,16 +70,12 @@ ssize_t write(int fd, const void* buf, size_t num_bytes)
 
 off_t lseek(int fd, off_t offset, int whence)
 {
-    asm volatile("li a7, 500\n"
-                 "mv a0, %0\n"
-                 "mv a1, %1\n"
-                 "mv a2, %2\n"
-                 "ecall"
-                 :
-                 : "r"(fd), "r"(offset), "r"(whence));
+    register ssize_t a7 asm("a7") = 500;
+    register ssize_t a0 asm("a0") = fd;
+    register ssize_t a1 asm("a1") = offset;
+    register ssize_t a2 asm("a2") = whence;
 
-    size_t a0;
-    asm volatile("mv %0, a0" : "=r"(a0));
+    asm volatile("ecall" : "+r"(a0) : "r"(a7), "r"(a1), "r"(a2) : "memory");
 
     if (a0 >= 0)
         return a0;
@@ -101,19 +86,28 @@ off_t lseek(int fd, off_t offset, int whence)
 
 void* sbrk(ptrdiff_t increment)
 {
-    return NULL;
+    asm volatile("li a7, 700\n"
+                 "mv a0, %0\n"
+                 "ecall"
+                 :
+                 : "r"(increment));
+
+    ssize_t a0;
+    asm volatile("mv %0, a0" : "=r"(a0));
+
+    if (a0 >= 0)
+        return (void*)a0;
+
+    errno = -a0;
+    return (void*)-1;
 }
 
 int pipe(int fd[2])
 {
-    asm volatile("li a7, 600\n"
-                 "mv a0, %0\n"
-                 "ecall"
-                 :
-                 : "r"(fd));
+    register ssize_t a7 asm("a7") = 600;
+    register ssize_t a0 asm("a0") = (ssize_t)fd;
 
-    size_t a0;
-    asm volatile("mv %0, a0" : "=r"(a0));
+    asm volatile("ecall" : "+r"(a0) : "r"(a7) : "memory");
 
     if (a0 >= 0)
         return a0;

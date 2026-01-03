@@ -278,6 +278,8 @@ pub fn start_init_1() {
     process.context.ra = prepare_first_time_execution as usize;
 
     process.context.sp = trapframe.kernel_stack + PAGE_SIZE;
+    trapframe.brk.set(max_code_page_end_va);
+    trapframe.heap_end.set(max_code_page_end_va);
 }
 
 pub fn start_init_2() {
