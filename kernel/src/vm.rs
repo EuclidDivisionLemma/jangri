@@ -6,6 +6,7 @@ use crate::{
         UART0, USER_MODE, VALID_BIT, VIRTIO_MMIO_DISK, VIRTIO_MMIO_DISK_SIZE,
     },
     error::{self, Result},
+    traps::TrapFrame,
 };
 use core::{arch::asm, f64::math::floor, ptr::read_volatile};
 use core::{f64::math::ceil, ptr::write_volatile};
@@ -232,11 +233,16 @@ pub fn get_page_table_entry_address(
     }
 }
 
+#[inline(always)]
+pub fn kernel_stack_address(pid: usize) -> usize {
+    TRAMPOLINE - 7 * (pid + 1) * PAGE_SIZE
+}
+
 pub fn map_kernel_stack() {
     let mut physical_address: usize;
 
     for i in 0..MAXIMUM_PROCESS {
-        match allocate(1) {
+        match allocate(6) {
             Ok(v) => physical_address = v,
             Err(_) => {
                 panic!("ERROR - WHILE MAPPING KERNEL STACK - Page Fault: No Free Memory\n");
@@ -245,9 +251,9 @@ pub fn map_kernel_stack() {
         unsafe {
             map(
                 KERNEL_PAGE_TABLE,
-                TRAMPOLINE - (i + 1) * 2 * PAGE_SIZE,
+                kernel_stack_address(i),
                 physical_address,
-                PAGE_SIZE,
+                6 * PAGE_SIZE,
                 READ_WRITE,
             )
             .unwrap()

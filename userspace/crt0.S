@@ -6,7 +6,7 @@ _start:
 
     # push argc and argv into stack
     mv s0, sp
-    addi sp, sp, -16
+    addi sp, sp, -32
     sd a0, 0(sp)
     sd a1, 8(sp)
 

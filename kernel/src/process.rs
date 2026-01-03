@@ -2,15 +2,15 @@ use crate::{
     DEVICE,
     allocator::allocate,
     constants::{
-        EXECUTE_ONLY, HEAP_PAGES, KERNEL_PAGE_TABLE, MAXIMUM_PROCESS, PAGE_SIZE, READ_EXECUTE,
-        READ_ONLY, READ_WRITE, ROOT_INODE, STACK_PAGES, Sv48, TRAMPOLINE, TRAMPOLINE_CODE_ADDRESS,
+        EXECUTE_ONLY, KERNEL_PAGE_TABLE, MAXIMUM_PROCESS, PAGE_SIZE, READ_EXECUTE, READ_ONLY,
+        READ_WRITE, ROOT_INODE, STACK_PAGES, Sv48, TRAMPOLINE, TRAMPOLINE_CODE_ADDRESS,
         TRAMPOLINE_OFFSET, TRAPFRAME, USER_MODE, WRITE_ONLY,
     },
     error::{Error, Result},
     fs::sfs::{MemoryINode, read_inode},
     scheduler::{Context, switch_to_scheduler_context},
     traps::{TrapFrame, set_up_supervisor_to_user_mode_transition, user_trap},
-    vm::{map, map_trampoline},
+    vm::{kernel_stack_address, map, map_trampoline},
 };
 use alloc::{
     boxed::Box,
@@ -71,6 +71,8 @@ pub enum ProcessState {
 pub struct Process<'a> {
     pub id: usize,
     name: &'a str,
+
+    /// CAUTION: Holds the bottom of the stack
     kernel_stack: usize,
     pub state: ProcessState,
     pub context: Context,
@@ -165,34 +167,16 @@ pub fn map_other_pages(page_table: usize, final_code: usize, process: &mut Proce
     }
 
     let stack = allocate(STACK_PAGES)?;
-    let heap = allocate(HEAP_PAGES)?;
-    let kernel_stack = allocate(1)?;
 
     map(
         page_table,
-        TRAMPOLINE - 7 * PAGE_SIZE,
+        TRAMPOLINE - 12 * PAGE_SIZE,
         stack,
         3 * PAGE_SIZE,
         READ_WRITE | USER_MODE,
     )?;
 
-    map(
-        page_table,
-        TRAMPOLINE - 18 * PAGE_SIZE,
-        heap,
-        10 * PAGE_SIZE,
-        READ_WRITE | USER_MODE,
-    )?;
-
-    process.kernel_stack = kernel_stack;
-
-    map(
-        page_table,
-        TRAMPOLINE - 3 * PAGE_SIZE,
-        process.kernel_stack,
-        PAGE_SIZE,
-        READ_WRITE,
-    )?;
+    process.kernel_stack = kernel_stack_address(process.id);
 
     map_trampoline(
         page_table,
@@ -214,7 +198,7 @@ pub fn map_other_pages(page_table: usize, final_code: usize, process: &mut Proce
 
     trapframe.kernel_page_table = Sv48 | (unsafe { KERNEL_PAGE_TABLE } >> 12);
     trapframe.kernel_stack = process.kernel_stack;
-    trapframe.sp = TRAMPOLINE - 4 * PAGE_SIZE;
+    trapframe.sp = TRAMPOLINE - 9 * PAGE_SIZE;
 
     Ok(())
 }
@@ -224,7 +208,7 @@ pub fn start_init_1() {
     let end = unsafe { &process_1_end as *const usize as usize };
     let size = end - start;
     let mut page = 0;
-    let mut max_code_page_end = 0;
+    let mut max_code_page_end_va = 0;
 
     let process = assign_process().expect("INIT FAILED - FAILED TO ASSIGN PROCESS");
 
@@ -245,14 +229,14 @@ pub fn start_init_1() {
 
             page = allocate(num_pages).expect("INIT FAILED - FAILED TO ALLOCATE PAGE FOR CODE");
 
-            if page > max_code_page_end {
-                max_code_page_end = page + num_pages * PAGE_SIZE;
-            }
-
             let offset = header.p_offset as usize;
 
             let va = header.p_vaddr as usize;
             let flags = header.p_flags;
+
+            if va + num_pages * PAGE_SIZE > max_code_page_end_va {
+                max_code_page_end_va = page + num_pages * PAGE_SIZE;
+            }
 
             let mut permissions = 0;
 
@@ -282,7 +266,7 @@ pub fn start_init_1() {
         panic!("PANIC: INIT FAILED - ELF CONTAINS NO LOADABLE SEGMENT");
     }
 
-    map_other_pages(process.page_table, max_code_page_end, process)
+    map_other_pages(process.page_table, max_code_page_end_va, process)
         .expect("INIT FAILED - ERROR WHILE MAPPING PAGES");
 
     let trapframe = process

@@ -1,5 +1,6 @@
 use core::{
     arch::{asm, global_asm},
+    cell::Cell,
     mem::transmute,
 };
 
@@ -100,7 +101,7 @@ pub struct TrapFrame {
     t1: usize, // 40
     t2: usize, // 48
 
-    s0: usize,     // 56
+    pub s0: usize, // 56
     s1: usize,     // 64
     pub a0: usize, // 72
     pub a1: usize, // 80
@@ -129,7 +130,7 @@ pub struct TrapFrame {
 
     pub sepc: usize,       // 248
     pub page_table: usize, // 256
-    /// CAUTION: Holds the address of top of the stack
+    /// CAUTION: Holds the low address of the stack
     pub kernel_stack: usize, // 264
     pub kernel_page_table: usize, // 272
     pub user_trap_address: usize, // 280

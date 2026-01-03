@@ -19,6 +19,7 @@ use crate::{
         FILE_NAME_SIZE, InodeEntry, flush_data_blocks, flush_inodes, free_inode, read_inode,
         read_inode_data, write_inode_data,
     },
+    syscall::stdout,
     traps::TrapFrame,
     vm::translate_virtual_address,
 };
@@ -208,7 +209,7 @@ pub fn write(trapframe: &TrapFrame) -> usize {
 
                     FileType::INode {
                         inode,
-                        offset,
+                        offset: _,
                         append,
                     } => {
                         if inode.entry.get() == InodeEntry::File {

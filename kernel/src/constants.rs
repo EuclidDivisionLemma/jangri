@@ -45,7 +45,7 @@ pub const RAM_STOP: usize = 0x80000000 + 2_14_74_83_648;
 
 pub const TIMER_EXTENION_ID: usize = 0x54494D45;
 
-pub const STACK_PAGES: usize = 3;
+pub const STACK_PAGES: usize = 6;
 pub const HEAP_PAGES: usize = 10;
 
 pub static mut TRAMPOLINE_OFFSET: usize = 0;
