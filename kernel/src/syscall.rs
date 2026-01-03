@@ -97,7 +97,7 @@ pub fn pipe(trapframe: &TrapFrame) -> usize {
 
 pub fn sbrk(trapframe: &TrapFrame) -> usize {
     enum Error {
-        ENOMEM,
+        ENOMEM = 12,
     }
     let increment = trapframe.a0 as isize;
 

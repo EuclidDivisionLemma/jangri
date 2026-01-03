@@ -50,22 +50,27 @@ impl BitAnd<Flag> for usize {
 }
 
 #[repr(C)]
+/// POSIX error codes. The numbers are chosen to match Linux error codes for compatibility.
+///
+/// [https://github.com/torvalds/linux/blob/master/include/uapi/asm-generic/errno-base.h]
+///
+/// [https://github.com/torvalds/linux/blob/master/include/uapi/asm-generic/errno.h]
 pub enum Error {
-    EEXIST,
+    EEXIST = 17,
 
     /// `O_CREAT` is not set and file DNE or `O_CREAT` is set but path prefix DNE
     /// or path prefix is an empty string.
-    ENOENT,
-    ENOTDIR,
-    EOVERFLOW,
-    EACCES,
-    ENAMETOOLONG,
-    EBADF, // file descriptor is not associated with an open file
-    EFBIG, // no room for bytes to be written
-    ENXIO, // the operation is outside the capabilities of device
-    ENOSPC,
-    EINVAL,
-    EPIPE,
+    ENOENT = 2,
+    ENOTDIR = 20,
+    EOVERFLOW = 75,
+    EACCES = 13,
+    ENAMETOOLONG = 36,
+    EBADF = 9,  // file descriptor is not associated with an open file
+    EFBIG = 27, // no room for bytes to be written
+    ENXIO = 6,  // the operation is outside the capabilities of device
+    ENOSPC = 28,
+    EINVAL = 22,
+    EPIPE = 32,
 }
 
 impl Neg for Error {
