@@ -23,7 +23,7 @@ use crate::{
         read_inode_data, write_inode, write_inode_data,
     },
     pipe::Pipe,
-    process::CURRENT_PROCESS,
+    process::{CURRENT_PROCESS, ProcessState},
 };
 
 pub const STDIN: usize = 0;
@@ -156,7 +156,11 @@ pub fn traverse_path(path: &str, parent: bool) -> Result<Rc<MemoryINode>> {
         inode = read_inode(ROOT_INODE, &DEVICE);
     } else {
         inode = if let Some(process) = unsafe { CURRENT_PROCESS.as_ref() } {
-            process.cwd.clone()
+            if let ProcessState::Running { cwd } = &process.state {
+                cwd.clone()
+            } else {
+                panic!("PROCESS NOT RUNNING BUT TRAVERSED PATH");
+            }
         } else {
             read_inode(ROOT_INODE, &DEVICE)
         };
@@ -284,6 +288,10 @@ pub fn open(
     };
 
     let file = allocate_file();
+
+    if let Some(current_process) = unsafe { &mut CURRENT_PROCESS } {
+        current_process.fds.push(file.fd);
+    }
     *file.file_type.borrow_mut() = file_type;
     *file.readable.borrow_mut() = readable;
     *file.writeable.borrow_mut() = writeable;

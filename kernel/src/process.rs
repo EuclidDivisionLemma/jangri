@@ -57,15 +57,14 @@ pub static mut PROCESSES: LazyCell<[Process; MAXIMUM_PROCESS]> =
 
 pub static mut CURRENT_PROCESS: Option<&'static mut Process> = None;
 
-#[repr(C)]
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone)]
 pub enum ProcessState {
-    Ready,
-    Running,
+    Ready { cwd: Rc<MemoryINode> },
+    Running { cwd: Rc<MemoryINode> },
     Waiting,
-    Terminated,
+    Terminated { return_value: isize },
     NotUsed,
-    Sleeping,
+    Sleeping { cwd: Rc<MemoryINode> },
 }
 
 pub struct Process<'a> {
@@ -82,7 +81,7 @@ pub struct Process<'a> {
     pub code: usize,
     pub trapframe: Option<Box<TrapFrame>>,
     pub sleep_on: Option<usize>,
-    pub cwd: Rc<MemoryINode>,
+    pub fds: Vec<usize>,
 }
 
 impl<'a> Process<'a> {
@@ -99,7 +98,7 @@ impl<'a> Process<'a> {
             code: 0,
             trapframe: None,
             sleep_on: None,
-            cwd: read_inode(ROOT_INODE, &DEVICE),
+            fds: Vec::new(),
         }
     }
 }
@@ -111,7 +110,9 @@ pub fn yield_cpu() {
             .expect("YIELD FAILED - NO CURRENT PROCESS")
     };
 
-    process.state = ProcessState::Ready;
+    if let ProcessState::Running { cwd } = &process.state {
+        process.state = ProcessState::Ready { cwd: cwd.clone() }
+    }
     switch_to_scheduler_context();
 }
 
@@ -120,8 +121,10 @@ pub fn assign_process() -> Result<&'static mut Process<'static>> {
     let trapframe = allocate(1)?;
 
     for process in unsafe { &mut *PROCESSES } {
-        if process.state == ProcessState::NotUsed {
-            process.state = ProcessState::Ready;
+        if let ProcessState::NotUsed = process.state {
+            process.state = ProcessState::Ready {
+                cwd: read_inode(ROOT_INODE, &DEVICE),
+            };
             process.page_table = page_table;
 
             process.trapframe = Some(unsafe { Box::from_raw(trapframe as *mut TrapFrame) });
@@ -384,7 +387,10 @@ pub fn prepare_first_time_execution() {
 impl<'a> Process<'a> {
     pub fn sleep(&mut self, sleep_on: usize) {
         self.sleep_on = Some(sleep_on);
-        self.state = ProcessState::Sleeping;
+
+        if let ProcessState::Ready { cwd } = &self.state {
+            self.state = ProcessState::Sleeping { cwd: cwd.clone() }
+        }
     }
 }
 
@@ -393,7 +399,10 @@ pub fn wake_up(sleep_on: usize) {
         if let Some(v) = process.sleep_on {
             if v == sleep_on {
                 process.sleep_on = None;
-                process.state = ProcessState::Ready;
+
+                if let ProcessState::Sleeping { cwd } = &process.state {
+                    process.state = ProcessState::Ready { cwd: cwd.clone() };
+                }
             }
         }
     }

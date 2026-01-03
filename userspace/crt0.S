@@ -11,7 +11,6 @@ _start:
     sd a1, 8(sp)
 
     jal main
-    j loop
 
-loop:
-    j loop
+    li a7, 800
+    j __sys_exit

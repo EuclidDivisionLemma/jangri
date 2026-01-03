@@ -83,9 +83,9 @@ pub fn schedule() -> ! {
         }
 
         for process in unsafe { &mut *PROCESSES } {
-            if process.state == ProcessState::Ready {
+            if let ProcessState::Ready { cwd } = &process.state {
                 let context = &raw const process.context;
-                process.state = ProcessState::Running;
+                process.state = ProcessState::Running { cwd: cwd.clone() };
 
                 unsafe {
                     CURRENT_PROCESS = Some(process);
