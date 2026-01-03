@@ -4,6 +4,7 @@ use crate::drivers::Storage;
 use crate::error::Error;
 use crate::error::Result;
 use alloc::vec;
+use core::cmp::max;
 use core::cmp::min;
 use core::fmt::Debug;
 use core::num::NonZeroUsize;
@@ -343,7 +344,7 @@ pub fn allocate_data_block(device: &dyn Storage) -> Result<usize> {
 
     let mut bitmaps = device.read_blocks(
         super_block.bitmap_start + number_of_inode_bitmap_blocks,
-        super_block.bitmap_start + number_of_inode_bitmap_blocks + number_of_data_bitmap_blocks,
+        number_of_data_bitmap_blocks,
     );
 
     for i in 0..bitmaps.len() {
@@ -359,9 +360,7 @@ pub fn allocate_data_block(device: &dyn Storage) -> Result<usize> {
 
                 device.write_blocks(
                     super_block.bitmap_start + number_of_inode_bitmap_blocks,
-                    super_block.bitmap_start
-                        + number_of_inode_bitmap_blocks
-                        + number_of_data_bitmap_blocks,
+                    number_of_data_bitmap_blocks,
                     &bitmaps,
                 );
 
@@ -634,7 +633,7 @@ pub fn write_inode_data(
         logical_block += 1;
     }
 
-    inode.size.set(inode.size.get() + written);
+    inode.size.set(max(byte_offset + written, inode.size.get()));
     flush_data_blocks(device, false);
 
     Ok(())
