@@ -9,6 +9,8 @@ pub static mut END_OF_KERNEL_TEXT: usize = 0; // re-assign later in main::_start
 pub static mut TRAMPOLINE_CODE_ADDRESS: usize = 0; // // re-assign later in main::_start
 pub static mut KERNEL_START: usize = 0;
 
+pub const STACK_START: usize = TRAMPOLINE - 12 * PAGE_SIZE;
+
 pub const MAX_VA: usize = 0xffffffffffffffff;
 pub const VALID_BIT: usize = 1;
 

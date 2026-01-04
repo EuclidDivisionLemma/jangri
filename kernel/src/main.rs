@@ -24,7 +24,7 @@ use crate::{
     fs::sfs::{self, DiskINode, flush_data_blocks, flush_inodes, read_inode},
     pipe::allocate_pipe,
     plic::initialise_plic,
-    process::{start_init_1, start_init_2},
+    process::start_init_1,
     scheduler::schedule,
     traps::{initialise_traps, return_to_user_mode},
     vm::{align_to_page_size, enable_paging, initialise_kernel_page_table},

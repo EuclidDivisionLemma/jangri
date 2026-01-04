@@ -124,3 +124,21 @@ void exit(int r)
 
     asm volatile("ecall" : : "r"(a7), "r"(a0));
 }
+
+pid_t fork()
+{
+    register ssize_t a7 asm("a7") = 900;
+    register ssize_t a0 asm("a0") = 0;
+
+    asm volatile("ecall" : "+r"(a0) : "r"(a7) : "memory");
+
+    if (a0 >= 0)
+    {
+        return a0;
+    }
+    else
+    {
+        errno = -a0;
+        return -1;
+    }
+}

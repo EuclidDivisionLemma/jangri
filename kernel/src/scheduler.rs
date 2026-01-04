@@ -1,6 +1,11 @@
 use core::{arch::global_asm, cell::LazyCell};
 
-use crate::process::{CURRENT_PROCESS, PROCESSES, ProcessState};
+use alloc::format;
+
+use crate::{
+    process::{CURRENT_PROCESS, PROCESSES, ProcessState},
+    syscall::stdout,
+};
 
 #[repr(C)]
 #[derive(Clone, Default)]

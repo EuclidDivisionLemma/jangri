@@ -13,4 +13,4 @@ _start:
     jal main
 
     li a7, 800
-    j __sys_exit
+    j exit

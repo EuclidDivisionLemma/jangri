@@ -2,13 +2,19 @@ use crate::{
     allocator::allocate,
     constants::{
         END_OF_KERNEL_TEXT, KERNEL_PAGE_TABLE, KERNEL_START, MAX_VA, MAXIMUM_PROCESS, PAGE_SIZE,
-        PLIC, PLIC_SIZE, RAM_STOP, READ_EXECUTE, READ_WRITE, TRAMPOLINE, TRAMPOLINE_CODE_ADDRESS,
-        UART0, USER_MODE, VALID_BIT, VIRTIO_MMIO_DISK, VIRTIO_MMIO_DISK_SIZE,
+        PLIC, PLIC_SIZE, RAM_STOP, READ_EXECUTE, READ_WRITE, STACK_START, TRAMPOLINE,
+        TRAMPOLINE_CODE_ADDRESS, TRAPFRAME, UART0, USER_MODE, VALID_BIT, VIRTIO_MMIO_DISK,
+        VIRTIO_MMIO_DISK_SIZE,
     },
-    error::{self, Result},
+    error::{self, Error, Result},
+    process::CURRENT_PROCESS,
     traps::TrapFrame,
 };
-use core::{arch::asm, f64::math::floor, ptr::read_volatile};
+use core::{
+    arch::asm,
+    f64::math::floor,
+    ptr::{self, read_volatile},
+};
 use core::{f64::math::ceil, ptr::write_volatile};
 
 #[inline(always)]
@@ -222,6 +228,8 @@ pub fn get_page_table_entry_address(
                         page_table_entry as *mut usize,
                         physical_address_to_page_table_entry(page_table) | VALID_BIT,
                     );
+                } else {
+                    return Err(error::Error::PageNotAllocated);
                 }
             }
         }
@@ -309,6 +317,10 @@ pub fn allocate_heap(increment: isize, trapframe: &TrapFrame) -> Result<usize> {
             trapframe
                 .heap_end
                 .set(trapframe.heap_end.get() + num_pages * PAGE_SIZE);
+
+            let current_process = unsafe { &mut *CURRENT_PROCESS.as_mut().unwrap() };
+            current_process.size = trapframe.heap_end.get();
+
             trapframe.brk.set(trapframe.brk.get() + increment as usize);
 
             Ok(old)
@@ -318,4 +330,72 @@ pub fn allocate_heap(increment: isize, trapframe: &TrapFrame) -> Result<usize> {
             Ok(old)
         }
     }
+}
+
+#[inline(always)]
+pub fn permissions_from_page_table_entry(page_table_entry: usize) -> usize {
+    page_table_entry & 0b1111111111
+}
+
+pub fn copy(old: usize, new: usize, size: usize) -> Result<()> {
+    for page_va in (0..size).step_by(PAGE_SIZE) {
+        let pte_address = match get_page_table_entry_address(old, page_va, false) {
+            Ok(v) => v,
+            Err(e) if e == Error::PageNotAllocated => continue,
+            Err(e) => return Err(e),
+        };
+
+        let pte = unsafe { *(pte_address as *const usize) };
+
+        if pte & VALID_BIT == 0 {
+            continue;
+        }
+
+        let pa = page_table_entry_to_physical_address(pte);
+        let new_pa = allocate(1)?;
+
+        unsafe {
+            ptr::copy_nonoverlapping(pa as *const u8, new_pa as *mut u8, PAGE_SIZE);
+        }
+
+        map(
+            new,
+            page_va,
+            new_pa,
+            PAGE_SIZE,
+            permissions_from_page_table_entry(pte),
+        )?;
+    }
+
+    for page_va in (STACK_START..STACK_START + 3 * PAGE_SIZE).step_by(PAGE_SIZE) {
+        let pte_address = match get_page_table_entry_address(old, page_va, false) {
+            Ok(v) => v,
+            Err(_) => panic!(
+                "ERROR WHILE COPYING PAGES IN FORK: STACK SHOULD BE ALLOCATED. THIS INDICATES A BUG"
+            ),
+        };
+
+        let pte = unsafe { *(pte_address as *const usize) };
+
+        if pte & VALID_BIT == 0 {
+            continue;
+        }
+
+        let pa = page_table_entry_to_physical_address(pte);
+        let new_pa = allocate(1)?;
+
+        unsafe {
+            ptr::copy_nonoverlapping(pa as *const u8, new_pa as *mut u8, PAGE_SIZE);
+        }
+
+        map(
+            new,
+            page_va,
+            new_pa,
+            PAGE_SIZE,
+            permissions_from_page_table_entry(pte),
+        )?;
+    }
+
+    Ok(())
 }

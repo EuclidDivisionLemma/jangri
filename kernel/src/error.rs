@@ -29,6 +29,7 @@ pub enum Error {
 
     PageTableEntryInvalid,
     PageTableEntryNotAccessibleInUserMode,
+    PageNotAllocated,
 
     PipeWriterClosed,
     PipeReaderClosed,
@@ -105,6 +106,9 @@ impl Display for Error {
             }
             Error::PipeReaderClosed => "Pipe Error: Read end of pipe is closed\n\n",
             Error::InvalidHeapSize => "Heap Error: Invalid heap size requested\n\n",
+            Error::PageNotAllocated => {
+                "Page Fault: Page corresponding to the page table entry is not allocated\n\n"
+            }
         };
         write!(f, "{}", text)
     }

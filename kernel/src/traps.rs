@@ -90,9 +90,9 @@ pub fn set_next_timer_interrupt(time: usize) {
 
 #[repr(C)]
 #[repr(align(16))]
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Clone)]
 pub struct TrapFrame {
-    ra: usize,     // 0
+    pub ra: usize, // 0
     pub sp: usize, // 8
 
     gp: usize, // 16
