@@ -1,2 +1,2 @@
 CompileFlags:
-  Add: [-std=gnu23, -I/opt/cross/include, --target=riscv64-unknwown-elf]
+  Add: [-I/opt/cross/include, --target=riscv64-unknwown-elf]

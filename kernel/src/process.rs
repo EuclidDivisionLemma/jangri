@@ -60,12 +60,21 @@ pub static mut CURRENT_PROCESS: Option<&'static mut Process> = None;
 
 #[derive(Clone)]
 pub enum ProcessState {
-    Ready { cwd: Rc<MemoryINode> },
-    Running { cwd: Rc<MemoryINode> },
+    Ready {
+        cwd: Rc<MemoryINode>,
+    },
+    Running {
+        cwd: Rc<MemoryINode>,
+    },
     Waiting,
-    Terminated { return_value: isize },
+    Terminated {
+        return_value: isize,
+    },
     NotUsed,
-    Sleeping { cwd: Rc<MemoryINode> },
+    Sleeping {
+        cwd: Rc<MemoryINode>,
+        sleep_on: usize,
+    },
 }
 
 pub struct Process<'a> {
@@ -77,11 +86,10 @@ pub struct Process<'a> {
     pub state: ProcessState,
     pub context: Context,
     parent: Option<&'a Process<'a>>,
-    children: Option<Vec<Arc<Process<'a>>>>,
+    pub children: Option<Vec<&'a Process<'a>>>,
     pub page_table: usize,
     pub code: usize,
     pub trapframe: Option<Box<TrapFrame>>,
-    pub sleep_on: Option<usize>,
     pub fds: Vec<usize>,
     pub size: usize,
 }
@@ -99,7 +107,6 @@ impl<'a> Process<'a> {
             page_table: 0,
             code: 0,
             trapframe: None,
-            sleep_on: None,
             fds: Vec::new(),
             size: 0,
         }
@@ -363,24 +370,26 @@ pub fn prepare_first_time_execution() {
 
 impl<'a> Process<'a> {
     pub fn sleep(&mut self, sleep_on: usize) {
-        self.sleep_on = Some(sleep_on);
-
-        if let ProcessState::Ready { cwd } = &self.state {
-            self.state = ProcessState::Sleeping { cwd: cwd.clone() }
+        match &self.state {
+            ProcessState::Running { cwd } | ProcessState::Ready { cwd } => {
+                self.state = ProcessState::Sleeping {
+                    cwd: cwd.clone(),
+                    sleep_on,
+                }
+            }
+            _ => (),
         }
+
+        switch_to_scheduler_context();
     }
 }
 
-pub fn wake_up(sleep_on: usize) {
+pub fn wake_up(sleep_on_arg: usize) {
     for process in unsafe { &mut *PROCESSES } {
-        if let Some(v) = process.sleep_on {
-            if v == sleep_on {
-                process.sleep_on = None;
-
-                if let ProcessState::Sleeping { cwd } = &process.state {
-                    process.state = ProcessState::Ready { cwd: cwd.clone() };
-                }
-            }
+        if let ProcessState::Sleeping { cwd, sleep_on } = &process.state
+            && sleep_on_arg == *sleep_on
+        {
+            process.state = ProcessState::Ready { cwd: cwd.clone() };
         }
     }
 }

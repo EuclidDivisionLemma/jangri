@@ -1,11 +1,11 @@
+use alloc::vec;
+
 use crate::{
     DEVICE,
-    error::Error,
     file::{FILES, FileType},
     fs::sfs::{flush_data_blocks, flush_inodes},
-    process::{CURRENT_PROCESS, ProcessState, assign_process},
+    process::{self, CURRENT_PROCESS, ProcessState},
     scheduler::switch_to_scheduler_context,
-    syscall,
     traps::TrapFrame,
 };
 
@@ -38,6 +38,8 @@ pub fn exit(trapframe: &TrapFrame) -> usize {
         }
     }
 
+    process::wake_up(current_process.id);
+
     switch_to_scheduler_context();
     0
 }
@@ -49,11 +51,38 @@ pub fn fork(trapframe: &TrapFrame) -> usize {
     }
 
     let current_process = unsafe { &mut **CURRENT_PROCESS.as_mut().unwrap() };
+    let child = current_process.clone();
+    let current_process = unsafe { &mut **CURRENT_PROCESS.as_mut().unwrap() };
 
-    match current_process.clone() {
-        Ok(child) => child.id,
+    match child {
+        Ok(child) => {
+            if let Some(children) = current_process.children.as_mut() {
+                children.push(child);
+            } else {
+                current_process.children = Some(vec![child]);
+            }
+            child.id
+        }
         Err(e) if e == crate::error::Error::NoUnusedProcess => -(Error::EAGAIN as isize) as usize,
         Err(e) if e == crate::error::Error::NoFreePage => -(Error::ENOMEM as isize) as usize,
         Err(e) => panic!("FORK: {}", e),
     }
+}
+
+pub fn wait(trapframe: &TrapFrame) -> usize {
+    pub const ECHILD: usize = 10;
+    let current_process = unsafe { &mut **CURRENT_PROCESS.as_mut().unwrap() };
+
+    if let None = current_process.children {
+        return -(ECHILD as isize) as usize;
+    }
+
+    for child in current_process.children.as_ref().unwrap() {
+        if child.id == trapframe.a0 {
+            current_process.sleep(trapframe.a0);
+            return trapframe.a0;
+        }
+    }
+
+    return -(ECHILD as isize) as usize;
 }

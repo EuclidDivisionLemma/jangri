@@ -1,3 +1,4 @@
+#include "syscalls.h"
 #include <errno.h>
 #include <stddef.h>
 #include <stdio.h>
@@ -141,4 +142,20 @@ pid_t fork()
         errno = -a0;
         return -1;
     }
+}
+
+pid_t wait(pid_t pid)
+{
+    register ssize_t a7 asm("a7") = 1000;
+    register ssize_t a0 asm("a0") = pid;
+
+    asm volatile("ecall" : "+r"(a0) : "r"(a7) : "memory");
+
+    if (a0 >= 0)
+    {
+        return a0;
+    }
+
+    errno = -a0;
+    return -1;
 }

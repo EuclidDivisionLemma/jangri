@@ -6,7 +6,7 @@ use crate::{
     file::{FILES, allocate_file},
     pipe::allocate_pipe,
     process::CURRENT_PROCESS,
-    syscall::process::{exit, fork},
+    syscall::process::{exit, fork, wait},
     traps::TrapFrame,
     vm::{self, translate_virtual_address},
 };
@@ -14,7 +14,7 @@ use crate::{
 pub mod io;
 pub mod process;
 
-pub const SYSCALLS: [(Syscall, fn(&TrapFrame) -> usize); 9] = [
+pub const SYSCALLS: [(Syscall, fn(&TrapFrame) -> usize); 10] = [
     (Syscall::Open, io::open),
     (Syscall::Read, io::read),
     (Syscall::Write, io::write),
@@ -24,6 +24,7 @@ pub const SYSCALLS: [(Syscall, fn(&TrapFrame) -> usize); 9] = [
     (Syscall::Sbrk, sbrk),
     (Syscall::Exit, exit),
     (Syscall::Fork, fork),
+    (Syscall::Wait, wait),
 ];
 
 #[derive(PartialEq, Eq, PartialOrd, Ord)]
@@ -37,6 +38,7 @@ pub enum Syscall {
     Sbrk = 700,
     Exit = 800,
     Fork = 900,
+    Wait = 1000,
 }
 
 pub fn stdout<'a>(text: &'a str) {
