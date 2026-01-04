@@ -117,10 +117,10 @@ int pipe(int fd[2])
     return -1;
 }
 
-void __sys_exit(int return_code)
+void exit(int r)
 {
     register ssize_t a7 asm("a7") = 800;
-    register ssize_t a0 asm("a0") = return_code;
+    register ssize_t a0 asm("a0") = r;
 
     asm volatile("ecall" : : "r"(a7), "r"(a0));
 }
