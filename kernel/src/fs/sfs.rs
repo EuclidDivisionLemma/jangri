@@ -17,7 +17,7 @@ use alloc::vec::Vec;
 
 use crate::fs::caching::{self, Interval, Lru};
 
-pub const BLOCK_SIZE: usize = 1024; // in bytes
+pub const BLOCK_SIZE: usize = 4096; // in bytes
 pub const SIZE: usize = 104857600;
 
 pub const INODES: usize = 200;
