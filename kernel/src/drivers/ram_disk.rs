@@ -1,3 +1,5 @@
+use core::cmp::min;
+
 use alloc::vec;
 use alloc::vec::Vec;
 
@@ -18,22 +20,20 @@ impl Storage for RamDisk {
     fn read_blocks(&self, start_block: usize, block_count: usize) -> Vec<u8> {
         let mut buffer = vec![0; block_count * BLOCK_SIZE];
 
-        let mut j = 0;
-        for i in start_block * BLOCK_SIZE..(start_block + block_count) * BLOCK_SIZE {
-            buffer[j] = unsafe { RAM_DISK[i] };
-            j += 1;
-        }
+        buffer.copy_from_slice(unsafe {
+            &RAM_DISK[start_block * BLOCK_SIZE..(start_block + block_count) * BLOCK_SIZE]
+        });
 
         buffer
     }
 
     fn write_blocks(&self, start_block: usize, block_count: usize, buffer: &[u8]) {
         assert!(block_count * BLOCK_SIZE >= buffer.len());
+        let num_bytes = min(block_count * BLOCK_SIZE, buffer.len());
 
-        for i in 0..buffer.len() {
-            unsafe {
-                RAM_DISK[start_block * BLOCK_SIZE + i] = buffer[i];
-            }
+        unsafe {
+            RAM_DISK[start_block * BLOCK_SIZE..start_block * BLOCK_SIZE + num_bytes]
+                .copy_from_slice(&buffer.as_slice()[..num_bytes]);
         }
     }
 }
