@@ -220,7 +220,7 @@ pub fn write(trapframe: &TrapFrame) -> usize {
 
                     FileType::INode {
                         inode,
-                        offset: _,
+                        offset,
                         append,
                     } => {
                         if inode.entry.get() == InodeEntry::File {
@@ -231,7 +231,7 @@ pub fn write(trapframe: &TrapFrame) -> usize {
 
                             if let Err(e) = write_inode_data(
                                 &inode,
-                                if *append { inode.size.get() } else { 0 },
+                                if *append { inode.size.get() } else { *offset },
                                 buffer[..num_bytes].to_vec(),
                                 &DEVICE,
                             ) {
