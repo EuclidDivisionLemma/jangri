@@ -414,6 +414,7 @@ pub fn logical_block_to_physical_block(
                 let block_containing_pointers_address = allocate_data_block(device)?;
                 inode.data[DIRECT].set(block_containing_pointers_address);
                 inode.needs_write.set(true);
+                flush_inodes(device)?;
 
                 let mut block_containing_pointers = vec![0; BLOCK_SIZE];
 
@@ -440,6 +441,7 @@ pub fn logical_block_to_physical_block(
                 );
 
                 unsafe {
+                    UNWRITTEN_DATA_BLOCKS += interval.data.len() / BLOCK_SIZE;
                     DATA_CACHE.insert(block_containing_pointers_address, interval);
                 }
 
@@ -450,7 +452,14 @@ pub fn logical_block_to_physical_block(
             return Err(Error::NoBlockOnDevice);
         }
 
-        let mut blocks = device.read_blocks(indirect, 1);
+        let mut blocks = if let Some(block) = unsafe { DATA_CACHE.range(..=indirect).next_back() }
+            && let Some(interval) = unsafe { DATA_CACHE.get(block) }
+        {
+            let offset_in_interval = indirect - interval.start;
+            interval.data[offset_in_interval..offset_in_interval + BLOCK_SIZE].to_vec()
+        } else {
+            device.read_blocks(indirect, 1)
+        };
 
         let mut buffer = [0u8; 8];
 
