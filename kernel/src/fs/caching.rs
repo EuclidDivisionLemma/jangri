@@ -71,7 +71,7 @@ pub fn coalesce<'a>(
 
     if let Some(key) = unsafe { DATA_CACHE.range(..block).next_back() }
         && let Some(predecessor) = unsafe { DATA_CACHE.get_mut(key) }
-        && predecessor.end == predecessor.start
+        && predecessor.end == interval.start
         && predecessor.needs_write
     {
         let predessor_start = predecessor.start;
@@ -87,7 +87,7 @@ pub fn coalesce<'a>(
         }
     }
 
-    if let Some(key) = unsafe { DATA_CACHE.range(block..).next_back() }
+    if let Some(key) = unsafe { DATA_CACHE.range(block..).next() }
         && let Some(successor) = unsafe { DATA_CACHE.get_mut(key) }
         && interval.end == successor.start
         && successor.needs_write
@@ -130,7 +130,7 @@ impl<K: Ord + Copy, V> Lru<K, V> {
         // if not present insert them
         else {
             // if cache is full, evict to make some space
-            if self.lru.len() > LRU_CACHE_CAPACITY
+            if self.lru.len() >= LRU_CACHE_CAPACITY
                 && let Some(key) = self.lru.pop_back()
             {
                 // note that `key` here is the one that was popped, its scope ends

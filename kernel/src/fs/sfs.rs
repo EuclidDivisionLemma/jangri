@@ -312,14 +312,19 @@ pub fn flush_inodes(device: &dyn Storage) -> Result<()> {
                 && interval.end > block
             {
                 interval.needs_write = true;
+
+                unsafe { UNWRITTEN_DATA_BLOCKS += interval.data.len() / BLOCK_SIZE }
+
                 interval
             } else {
                 let interval =
                     caching::coalesce(Interval::new(block, block + 1, buffer, true)?, None, None);
 
+                unsafe { UNWRITTEN_DATA_BLOCKS += interval.data.len() / BLOCK_SIZE }
+
                 unsafe {
-                    DATA_CACHE.insert(block, interval);
-                    DATA_CACHE.get_mut(&block).unwrap()
+                    DATA_CACHE.insert(interval.start, interval.clone());
+                    DATA_CACHE.get_mut(&interval.start).unwrap()
                 }
             };
 
@@ -389,6 +394,7 @@ pub fn logical_block_to_physical_block(
                     let block = allocate_data_block(device)?;
                     inode.data[logical_block].set(block);
                     inode.needs_write.set(true);
+                    flush_inodes(device)?;
                     Ok(block)
                 } else {
                     Err(Error::NoBlockOnDevice)
@@ -496,7 +502,7 @@ pub fn read_inode_data(
         write_inode_data(
             inode,
             inode.size.get(),
-            vec![0u8; byte_offset - num_bytes],
+            vec![0u8; byte_offset - inode.size.get()],
             device,
         )?;
     }
@@ -628,6 +634,8 @@ pub fn write_inode_data(
 
         interval.needs_write = true;
 
+        unsafe { UNWRITTEN_DATA_BLOCKS += interval.data.len() / BLOCK_SIZE }
+
         written += count;
         offset_in_logical_block = 0;
         logical_block += 1;
@@ -650,6 +658,8 @@ pub fn flush_data_blocks(device: &dyn Storage, force: bool) {
                 );
 
                 interval.needs_write = false;
+
+                unsafe { UNWRITTEN_DATA_BLOCKS -= interval.end - interval.start }
             }
         }
     }
