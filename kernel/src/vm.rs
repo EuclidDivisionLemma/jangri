@@ -1,10 +1,10 @@
 use crate::{
-    allocator::allocate,
+    allocator::{self, allocate, deallocate},
     constants::{
-        END_OF_KERNEL_TEXT, KERNEL_PAGE_TABLE, KERNEL_START, MAX_VA, MAXIMUM_PROCESS, PAGE_SIZE,
-        PLIC, PLIC_SIZE, RAM_STOP, READ_EXECUTE, READ_WRITE, STACK_START, TRAMPOLINE,
-        TRAMPOLINE_CODE_ADDRESS, TRAPFRAME, UART0, USER_MODE, VALID_BIT, VIRTIO_MMIO_DISK,
-        VIRTIO_MMIO_DISK_SIZE,
+        END_OF_KERNEL_TEXT, EXECUTE_ONLY, KERNEL_PAGE_TABLE, KERNEL_START, MAX_VA, MAXIMUM_PROCESS,
+        PAGE_SIZE, PLIC, PLIC_SIZE, RAM_STOP, READ_EXECUTE, READ_ONLY, READ_WRITE, STACK_PAGES,
+        STACK_START, TRAMPOLINE, TRAMPOLINE_CODE_ADDRESS, TRAPFRAME, UART0, USER_MODE, VALID_BIT,
+        VIRTIO_MMIO_DISK, VIRTIO_MMIO_DISK_SIZE, WRITE_ONLY,
     },
     error::{self, Error, Result},
     process::CURRENT_PROCESS,
@@ -269,6 +269,8 @@ pub fn map_kernel_stack() {
     }
 }
 
+pub static mut SUPERVISOR: bool = false;
+
 /// Translates a virtual address to a physical address using the given page table.
 pub fn translate_virtual_address(page_table: usize, va: usize) -> Result<usize> {
     let aligned_virtual_address = (va / PAGE_SIZE) * PAGE_SIZE;
@@ -278,7 +280,7 @@ pub fn translate_virtual_address(page_table: usize, va: usize) -> Result<usize> 
 
     if page_table_entry & VALID_BIT == 0 {
         return Err(error::Error::PageTableEntryInvalid);
-    } else if page_table_entry & USER_MODE == 0 {
+    } else if page_table_entry & USER_MODE == 0 && !unsafe { SUPERVISOR } {
         return Err(error::Error::PageTableEntryNotAccessibleInUserMode);
     }
 
@@ -398,4 +400,82 @@ pub fn copy(old: usize, new: usize, size: usize) -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Removes a mapping from the given page table, deallocating memory if necessary.
+pub fn unmap_pages(page_table: usize, va: usize, num_pages: usize, deallocate: bool) {
+    for page_va in (va..va + num_pages * PAGE_SIZE).step_by(PAGE_SIZE) {
+        if let Ok(pte_address) = get_page_table_entry_address(page_table, page_va, false) {
+            let pte = unsafe { *(pte_address as *const usize) };
+
+            if pte & VALID_BIT == 0 {
+                continue;
+            }
+
+            if deallocate {
+                allocator::deallocate(page_table_entry_to_physical_address(pte));
+            }
+
+            unsafe {
+                *(pte_address as *mut usize) = 0;
+            }
+        }
+    }
+}
+
+pub fn unmap_trampoline(page_table: usize) -> Result<()> {
+    let pte_address = get_page_table_entry_address(page_table, TRAMPOLINE, false)? as *mut usize;
+
+    if unsafe { *pte_address } & VALID_BIT == 0 {
+        panic!("NO TRAMPOLINE");
+    }
+
+    unsafe {
+        *pte_address = 0;
+    }
+
+    Ok(())
+}
+
+/// Completely deallocates any pages of the page table and any pages pointed to by the page table.
+/// The function first unmaps the pages, deallocating if necessary, and after all pages pointed to by
+/// leaf page-table entries have been deallocated, the function deallocates the pages of the page table entries
+/// themselves.
+pub fn drop_pages(page_table: usize, heap_end: usize) -> Result<()> {
+    // unmap and deallocate PT_LOAD pages and heap pages
+    unmap_pages(page_table, 0, heap_end / PAGE_SIZE, true);
+
+    // unmap and deallocate user stack pages
+    unmap_pages(page_table, STACK_START, STACK_PAGES, true);
+
+    // unmap and deallocate trapframe
+    unmap_pages(page_table, TRAPFRAME, 1, true);
+
+    unmap_trampoline(page_table)?;
+
+    free_page_table_recursive(page_table);
+
+    Ok(())
+}
+
+/// Walks the page table recursively deallocating pages pointed to by each page table entry.
+/// Analogous to xv6-riscv's `freewalk`.
+pub fn free_page_table_recursive(page_table: usize) {
+    let page_table = page_table as *mut usize;
+
+    for i in 0..512 {
+        let page_table_entry = unsafe { *page_table.offset(i) };
+
+        if page_table_entry & VALID_BIT != 0 {
+            if page_table_entry & (READ_ONLY | WRITE_ONLY | EXECUTE_ONLY) == 0 {
+                free_page_table_recursive(page_table_entry_to_physical_address(page_table_entry));
+            } else {
+                panic!("LEAF PAGE TABLE");
+            }
+        }
+
+        unsafe { *page_table.offset(i) = 0 };
+    }
+
+    deallocate(page_table.addr());
 }
