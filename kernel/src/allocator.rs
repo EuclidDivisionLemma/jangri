@@ -1,6 +1,6 @@
 use core::{
     alloc::{GlobalAlloc, Layout},
-    cell::RefCell,
+    cell::{Cell, RefCell},
     f64::math::ceil,
     ptr::{null_mut, write_bytes},
 };
@@ -12,16 +12,16 @@ use crate::{
 
 #[repr(C)]
 pub struct Allocator {
-    bitmap: RefCell<[bool; MEM_SIZE / PAGE_SIZE]>,
+    bitmap: [bool; MEM_SIZE / PAGE_SIZE],
 }
 
 #[global_allocator]
-pub static ALLOCATOR: Allocator = Allocator {
-    bitmap: RefCell::new([false; MEM_SIZE / PAGE_SIZE]),
+pub static mut ALLOCATOR: Allocator = Allocator {
+    bitmap: [false; MEM_SIZE / PAGE_SIZE],
 };
 
 fn find_contiguous(num_pages: usize) -> Option<usize> {
-    let mut allocator = ALLOCATOR.bitmap.borrow_mut();
+    let allocator = unsafe { &mut ALLOCATOR.bitmap };
 
     let mut count = 0;
     let mut start: isize = -1;
@@ -86,8 +86,8 @@ unsafe impl GlobalAlloc for Allocator {
         let index = (ptr.addr() - unsafe { KERNEL_END }) / PAGE_SIZE;
 
         for i in index..index + num_pages {
-            let mut bitmap = self.bitmap.borrow_mut();
-            bitmap[i] = false;
+            let bitmap = self.bitmap.as_ptr().addr() as *mut bool;
+            unsafe { *bitmap.offset(i as isize) = false };
         }
     }
 }
@@ -106,4 +106,12 @@ pub fn allocate(num_pages: usize) -> Result<usize> {
             Ok(ptr.addr())
         }
     }
+}
+
+pub fn deallocate(pa: usize) {
+    // pa is the same as va, as pages are identity mapped
+    assert!(pa % PAGE_SIZE == 0, "MISALIGNED VA WHILE DEALLOCATING");
+
+    let allocator = unsafe { &mut ALLOCATOR.bitmap };
+    allocator[(pa - unsafe { KERNEL_END }) / PAGE_SIZE] = false;
 }
