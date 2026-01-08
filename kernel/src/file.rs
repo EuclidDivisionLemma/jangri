@@ -51,7 +51,7 @@ pub struct File {
     pub file_type: RefCell<FileType>,
     pub readable: RefCell<bool>,
     pub writeable: RefCell<bool>,
-    pub fd: usize,
+    pub fd: RefCell<usize>,
 }
 
 pub fn allocate_file() -> Rc<File> {
@@ -61,11 +61,11 @@ pub fn allocate_file() -> Rc<File> {
         writeable: RefCell::new(false),
         fd: unsafe {
             FD += 1;
-            FD - 1
+            RefCell::new(FD - 1)
         },
     });
     unsafe {
-        FILES.insert(file.fd, file.clone());
+        FILES.insert(*file.fd.borrow(), file.clone());
     }
 
     file
@@ -290,7 +290,7 @@ pub fn open(
     let file = allocate_file();
 
     if let Some(current_process) = unsafe { &mut CURRENT_PROCESS } {
-        current_process.fds.push(file.fd);
+        current_process.fds.push(*file.fd.borrow());
     }
     *file.file_type.borrow_mut() = file_type;
     *file.readable.borrow_mut() = readable;
@@ -300,5 +300,5 @@ pub fn open(
         inode.size.set(0);
     }
 
-    Ok(file.fd)
+    Ok(*file.fd.borrow())
 }
