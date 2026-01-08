@@ -293,11 +293,18 @@ pub fn allocate_heap(increment: isize, trapframe: &TrapFrame) -> Result<usize> {
     {
         Err(error::Error::InvalidHeapSize)
     } else {
-        if trapframe.brk.get() as isize + increment >= trapframe.heap_end.get() as isize {
-            if trapframe.brk.get() as i128 >= (TRAMPOLINE - 12 * PAGE_SIZE) as i128 {
+        let new_brk = trapframe.brk.get() as isize + increment;
+
+        if new_brk >= trapframe.heap_end.get() as isize {
+            let num_pages = ((new_brk - trapframe.heap_end.get() as isize) as usize + PAGE_SIZE
+                - 1)
+                / PAGE_SIZE;
+
+            if (trapframe.heap_end.get() + num_pages * PAGE_SIZE) as i128
+                >= (TRAMPOLINE - 12 * PAGE_SIZE) as i128
+            {
                 return Err(error::Error::InvalidHeapSize);
             }
-            let num_pages = (increment as usize + PAGE_SIZE - 1) / PAGE_SIZE;
 
             if (trapframe.heap_end.get() as i128 + (num_pages * PAGE_SIZE) as i128)
                 >= isize::MAX as i128
@@ -323,7 +330,7 @@ pub fn allocate_heap(increment: isize, trapframe: &TrapFrame) -> Result<usize> {
             let current_process = unsafe { &mut *CURRENT_PROCESS.as_mut().unwrap() };
             current_process.size = trapframe.heap_end.get();
 
-            trapframe.brk.set(trapframe.brk.get() + increment as usize);
+            trapframe.brk.set(new_brk as usize);
 
             Ok(old)
         } else {
