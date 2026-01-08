@@ -1,3 +1,5 @@
+use alloc::format;
+
 use crate::{
     allocator::{self, allocate, deallocate},
     constants::{
@@ -8,6 +10,7 @@ use crate::{
     },
     error::{self, Error, Result},
     process::CURRENT_PROCESS,
+    syscall::stdout,
     traps::TrapFrame,
 };
 use core::{
@@ -296,9 +299,15 @@ pub fn allocate_heap(increment: isize, trapframe: &TrapFrame) -> Result<usize> {
         let new_brk = trapframe.brk.get() as isize + increment;
 
         if new_brk >= trapframe.heap_end.get() as isize {
-            let num_pages = ((new_brk - trapframe.heap_end.get() as isize) as usize + PAGE_SIZE
-                - 1)
-                / PAGE_SIZE;
+            let num_bytes = (new_brk - trapframe.heap_end.get() as isize) as usize;
+
+            let num_pages = {
+                if num_bytes == 0 {
+                    1
+                } else {
+                    (num_bytes + PAGE_SIZE - 1) / PAGE_SIZE
+                }
+            };
 
             if (trapframe.heap_end.get() + num_pages * PAGE_SIZE) as i128
                 >= (TRAMPOLINE - 12 * PAGE_SIZE) as i128
