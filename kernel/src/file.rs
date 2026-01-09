@@ -109,7 +109,7 @@ pub fn next_path_element(path: &str) -> (String, String) {
 /// `directory_search(home_inode, "bar")`, where `home_inode` is the inode of the file `home`.
 pub fn search_in_directory(inode: &Rc<MemoryINode>, name: &str) -> Result<Rc<MemoryINode>> {
     if inode.entry.get() != InodeEntry::Directory {
-        panic!("INODE NOT THAT OF A DIRECTORY: IN directory_search");
+        return Err(Error::NotADirectory { name: name.into() });
     } else {
         for i in 0..inode.size.get() / size_of::<DirectoryEntry>() {
             let bytes = &read_inode_data(
