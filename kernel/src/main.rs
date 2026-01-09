@@ -6,6 +6,7 @@
 #![feature(map_try_insert)]
 #![feature(if_let_guard)]
 #![feature(guard_patterns)]
+#![feature(str_as_str)]
 
 use core::arch::global_asm;
 
@@ -24,8 +25,9 @@ use crate::{
     fs::sfs::{self, DiskINode, flush_data_blocks, flush_inodes, read_inode},
     pipe::allocate_pipe,
     plic::initialise_plic,
-    process::start_init_1,
+    process::start_init,
     scheduler::schedule,
+    syscall::stdout,
     traps::{initialise_traps, return_to_user_mode},
     vm::{align_to_page_size, enable_paging, initialise_kernel_page_table},
 };
@@ -58,11 +60,57 @@ global_asm!(
     "#
 );
 
+global_asm!(
+    r#"
+    .section .rodata
+
+    .global init_start
+    .global init_end
+
+    .global sh_start
+    .global sh_end
+
+    .global cat_start
+    .global cat_end
+
+    .global about_start
+    .global about_end
+
+    init_start:
+        .incbin "../userspace/init.elf"
+    init_end:
+
+    sh_start:
+        .incbin "../userspace/sh.elf"
+    sh_end:
+
+    cat_start:
+        .incbin "../userspace/cat.elf"
+    cat_end:
+
+    about_start:
+        .incbin "../userspace/about.elf"
+    about_end:
+    "#
+);
+
 unsafe extern "C" {
     static kernel_end: u8;
     static end_of_kernel_text: u8;
     static kernel_start: u8;
     static trampoline_code_address: u8;
+
+    static init_start: u8;
+    static init_end: u8;
+
+    static sh_start: u8;
+    static sh_end: u8;
+
+    static cat_start: u8;
+    static cat_end: u8;
+
+    static about_start: u8;
+    static about_end: u8;
 }
 
 pub const DEVICE: RamDisk = RamDisk;
@@ -96,11 +144,7 @@ fn main() -> ! {
 
     console_write("\x1b[2J\x1b[HJangri v0.0.1\n");
 
-    file::open("/dev/stdin", true, false, false, false, false, false).unwrap();
-    file::open("/dev/stdout", false, true, false, false, false, false).unwrap();
-    file::open("/dev/stderr", false, true, false, false, false, false).unwrap();
-
-    start_init_1();
+    start_init();
 
     schedule();
 }

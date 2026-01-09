@@ -3,7 +3,6 @@
 
 #include "math.h"
 #include "sys/types.h"
-#include <errno.h>
 
 pid_t wait(pid_t pid);
 

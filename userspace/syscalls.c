@@ -1,10 +1,10 @@
 #include "syscalls.h"
-#include <errno.h>
+#include "sys/errno.h"
 #include <stddef.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <sys/types.h>
 #include <sys/unistd.h>
+
 
 int open(const char* path, int flag)
 {
@@ -155,6 +155,51 @@ pid_t wait(pid_t pid)
     {
         return a0;
     }
+
+    errno = -a0;
+    return -1;
+}
+
+int execve(const char* path, char* const* argv, char* const* envp)
+{
+    register ssize_t a7 asm("a7") = 1100;
+    register ssize_t a0 asm("a0") = (ssize_t)path;
+    register char* const* a1 asm("a1") = argv;
+    register char* const* a2 asm("a2") = envp;
+
+    asm volatile("ecall" : "+r"(a0) : "r"(a7), "r"(a1), "r"(a2) : "memory");
+
+    if (a0 >= 0)
+        return a0;
+
+    errno = -a0;
+    return -1;
+}
+
+int dup2(int fd1, int fd2)
+{
+    register ssize_t a7 asm("a7") = 1200;
+    register ssize_t a0 asm("a0") = fd1;
+    register ssize_t a1 asm("a1") = fd2;
+
+    asm volatile("ecall" : "+r"(a0) : "r"(a7), "r"(a1) : "memory");
+
+    if (a0 >= 0)
+        return a0;
+
+    errno = -a0;
+    return -1;
+}
+
+int chdir(const char* path)
+{
+    register ssize_t a7 asm("a7") = 1300;
+    register ssize_t a0 asm("a0") = (ssize_t)path;
+
+    asm volatile("ecall" : "+r"(a0) : : "memory");
+
+    if (a0 >= 0)
+        return a0;
 
     errno = -a0;
     return -1;

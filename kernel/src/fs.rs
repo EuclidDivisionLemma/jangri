@@ -1,13 +1,16 @@
 use core::ptr;
 
-use crate::DEVICE;
+use crate::constants::KERNEL_PAGE_TABLE;
 use crate::drivers::Storage;
-use crate::file::create_file;
+use crate::file::{self, create_file};
 use crate::fs::sfs::{
-    DirectoryEntry, FILE_NAME_SIZE, InodeEntry, flush_data_blocks, flush_inodes, read_inode,
-    write_inode, write_inode_data,
+    DirectoryEntry, FILE_NAME_SIZE, InodeEntry, flush_data_blocks, read_inode, write_inode,
+    write_inode_data,
 };
 use crate::sfs::allocate_inode;
+use crate::traps::TrapFrame;
+use crate::vm::SUPERVISOR;
+use crate::{DEVICE, about_end, about_start, cat_end, cat_start, sh_end, sh_start, syscall};
 
 pub mod caching;
 pub mod sfs;
@@ -16,6 +19,80 @@ pub fn initialise() {
     sfs::initialise(&DEVICE);
     initialise_root(&DEVICE);
     initialise_devices();
+
+    file::open("/dev/stdin", true, false, false, false, false, false).unwrap();
+    file::open("/dev/stdout", false, true, false, false, false, false).unwrap();
+    file::open("/dev/stderr", false, true, false, false, false, false).unwrap();
+
+    // Copy sh to /sh.elf
+    let start = unsafe { &sh_start as *const u8 as usize };
+    let end = unsafe { &sh_end as *const u8 as usize };
+    let size = end - start;
+
+    let fd = file::open("sh", true, true, true, true, false, false).unwrap();
+
+    let mut mock_traptrame = TrapFrame::default();
+    mock_traptrame.a0 = fd;
+    mock_traptrame.a1 = start;
+    mock_traptrame.page_table = unsafe { KERNEL_PAGE_TABLE };
+    mock_traptrame.a2 = size;
+
+    unsafe {
+        SUPERVISOR = true;
+    }
+
+    syscall::io::write(&mock_traptrame);
+    syscall::io::close(&mock_traptrame);
+
+    unsafe {
+        SUPERVISOR = false;
+    }
+
+    let start = unsafe { &cat_start as *const u8 as usize };
+    let end = unsafe { &cat_end as *const u8 as usize };
+    let size = end - start;
+
+    let fd = file::open("cat", true, true, true, true, false, false).unwrap();
+
+    let mut mock_traptrame = TrapFrame::default();
+    mock_traptrame.a0 = fd;
+    mock_traptrame.a1 = start;
+    mock_traptrame.page_table = unsafe { KERNEL_PAGE_TABLE };
+    mock_traptrame.a2 = size;
+
+    unsafe {
+        SUPERVISOR = true;
+    }
+
+    syscall::io::write(&mock_traptrame);
+    syscall::io::close(&mock_traptrame);
+
+    unsafe {
+        SUPERVISOR = false;
+    }
+
+    let start = unsafe { &about_start as *const u8 as usize };
+    let end = unsafe { &about_end as *const u8 as usize };
+    let size = end - start;
+
+    let fd = file::open("about", true, true, true, true, false, false).unwrap();
+
+    let mut mock_traptrame = TrapFrame::default();
+    mock_traptrame.a0 = fd;
+    mock_traptrame.a1 = start;
+    mock_traptrame.page_table = unsafe { KERNEL_PAGE_TABLE };
+    mock_traptrame.a2 = size;
+
+    unsafe {
+        SUPERVISOR = true;
+    }
+
+    syscall::io::write(&mock_traptrame);
+    syscall::io::close(&mock_traptrame);
+
+    unsafe {
+        SUPERVISOR = false;
+    }
 }
 
 pub fn initialise_root(device: &'static dyn Storage) {

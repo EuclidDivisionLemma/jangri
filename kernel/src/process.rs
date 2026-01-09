@@ -1,6 +1,6 @@
 use crate::{
     DEVICE,
-    allocator::allocate,
+    allocator::{allocate, deallocate},
     constants::{
         EXECUTE_ONLY, KERNEL_PAGE_TABLE, MAXIMUM_PROCESS, PAGE_SIZE, READ_EXECUTE, READ_ONLY,
         READ_WRITE, ROOT_INODE, STACK_PAGES, STACK_START, Sv48, TRAMPOLINE,
@@ -8,50 +8,30 @@ use crate::{
     },
     error::{Error, Result},
     fs::sfs::{MemoryINode, read_inode},
+    init_end, init_start,
     scheduler::{Context, switch_to_scheduler_context},
-    traps::{TrapFrame, set_up_supervisor_to_user_mode_transition, user_trap},
-    vm::{self, kernel_stack_address, map, map_trampoline},
+    syscall::stdout,
+    traps::{TrapFrame, return_to_user_mode, set_up_supervisor_to_user_mode_transition, user_trap},
+    vm::{self, drop_pages, kernel_stack_address, map, map_trampoline},
 };
 use alloc::{
+    alloc::dealloc,
     boxed::Box,
+    collections::btree_map::BTreeMap,
+    format,
     rc::Rc,
     string::String,
     sync::{Arc, Weak},
     vec::Vec,
 };
-use core::{arch::global_asm, cell::LazyCell, f64::math::ceil, mem::transmute, ptr};
+use core::{
+    arch::global_asm,
+    cell::LazyCell,
+    f64::math::ceil,
+    mem::{self, transmute},
+    ptr,
+};
 use elf::{ElfBytes, endian::NativeEndian};
-
-global_asm!(
-    r#"
-    .section .rodata
-    .global process_1_start
-    .global process_1_end
-
-    process_1_start:
-        .incbin "../userspace/sh.elf"
-    process_1_end:
-    "#
-);
-
-global_asm!(
-    r#"
-    .section .rodata
-    .global process_2_start
-    .global process_2_end
-
-    process_2_start:
-        .incbin "../build/process2"
-    process_2_end:
-    "#
-);
-
-unsafe extern "C" {
-    static process_1_start: usize;
-    static process_1_end: usize;
-    static process_2_start: usize;
-    static process_2_end: usize;
-}
 
 pub static mut PROCESSES: LazyCell<[Process; MAXIMUM_PROCESS]> =
     LazyCell::new(|| core::array::from_fn(|i| Process::default(i)));
@@ -160,6 +140,40 @@ impl<'a> Process<'a> {
 
         Ok(process)
     }
+
+    /// Returns a new page table with stack, trapframe and trampoline mapped. If successful,
+    /// the caller can proceed to map code pages, swap the old page table with the one returned by this
+    /// function and drop the old page table freeing any associated pages.
+    pub fn prepare_for_execve(&mut self) -> Result<usize> {
+        let trapframe = allocate(1)?;
+        let page_table = allocate(1)?;
+
+        self.trapframe = Some(unsafe { Box::from_raw(trapframe as *mut TrapFrame) });
+
+        let trapframe = self.trapframe.as_mut().unwrap();
+
+        trapframe.user_trap_address = user_trap as usize;
+        trapframe.page_table = page_table;
+        trapframe.satp = Sv48 | (page_table >> 12);
+
+        Ok(page_table)
+    }
+
+    /// Frees all pages in the page table, the pages of page table entries and the page table itself.
+    /// The old page table is replaced with the new one and the kernel stack is zeroed. The function
+    /// assumes that the new page table is valid as an invalid page table breaks the process's state,
+    /// preventing it from returning to the instruction after environment call to the kernel.
+    pub fn free_for_execve(&mut self, new_page_table: usize, old_heap_end: usize) {
+        let old_page_table = self.page_table;
+        self.page_table = new_page_table;
+
+        drop_pages(old_page_table, old_heap_end)
+            .map_err(|e| panic!("WHILE FREEING FOR EXECVE: {}", e));
+
+        unsafe {
+            ptr::write_bytes(kernel_stack_address(self.id) as *mut u8, 0, PAGE_SIZE);
+        }
+    }
 }
 
 pub fn yield_cpu() {
@@ -265,63 +279,69 @@ pub fn map_other_pages(page_table: usize, final_code: usize, process: &mut Proce
     Ok(())
 }
 
-pub fn start_init_1() {
-    let start = unsafe { &process_1_start as *const usize as usize };
-    let end = unsafe { &process_1_end as *const usize as usize };
+pub fn start_init() {
+    let start = unsafe { &init_start as *const u8 as usize };
+    let end = unsafe { &init_end as *const u8 as usize };
     let size = end - start;
     let mut page = 0;
     let mut max_code_page_end_va = 0;
 
     let process = assign_process().expect("INIT FAILED - FAILED TO ASSIGN PROCESS");
+    process.name = "init".into();
 
-    let elf_bytes = unsafe { core::slice::from_raw_parts(start as *const u8, size) };
+    let buffer = unsafe { core::slice::from_raw_parts(start as *const u8, size) };
     let elf_data: ElfBytes<NativeEndian> =
-        elf::ElfBytes::minimal_parse(elf_bytes).expect("INIT FAILED - ELF ERROR");
+        elf::ElfBytes::minimal_parse(buffer).expect("INIT FAILED - ELF ERROR");
+
     let program_headers = elf_data
         .segments()
         .expect("INIT FAILED - NO SEGMENTS")
         .iter();
 
     for header in program_headers {
-        if header.p_type == elf::abi::PT_LOAD {
-            let file_size = header.p_filesz as usize;
-            let mem_size = header.p_memsz as usize;
+        let file_size = header.p_filesz as usize;
+        let mem_size = header.p_memsz as usize;
 
-            let num_pages = ceil(mem_size as f64 / PAGE_SIZE as f64) as usize;
+        let num_pages = ceil(mem_size as f64 / PAGE_SIZE as f64) as usize;
 
-            page = allocate(num_pages).expect("INIT FAILED - FAILED TO ALLOCATE PAGE FOR CODE");
+        if num_pages == 0 {
+            continue;
+        }
 
-            let offset = header.p_offset as usize;
+        page = allocate(num_pages).expect("INIT FAILED - FAILED TO ALLOCATE PAGE FOR CODE");
 
-            let va = header.p_vaddr as usize;
-            let flags = header.p_flags;
+        let offset = header.p_offset as usize;
 
-            if va + num_pages * PAGE_SIZE > max_code_page_end_va {
-                max_code_page_end_va = page + num_pages * PAGE_SIZE;
-            }
+        let va = header.p_vaddr as usize;
+        let flags = header.p_flags;
 
-            let mut permissions = 0;
+        if va + num_pages * PAGE_SIZE > max_code_page_end_va {
+            max_code_page_end_va = va + num_pages * PAGE_SIZE;
+        }
 
-            if flags & elf::abi::PF_R != 0 {
-                permissions |= READ_ONLY;
-            }
+        stdout(&format!("{}, {}, {}\n", va, mem_size, num_pages));
 
-            if flags & elf::abi::PF_W != 0 {
-                permissions |= WRITE_ONLY;
-            }
+        let mut permissions = 0;
 
-            if flags & elf::abi::PF_X != 0 {
-                permissions |= EXECUTE_ONLY;
-            }
+        if flags & elf::abi::PF_R != 0 {
+            permissions |= READ_ONLY;
+        }
 
-            let loadable = &elf_bytes[offset..offset + file_size];
+        if flags & elf::abi::PF_W != 0 {
+            permissions |= WRITE_ONLY;
+        }
 
-            map_code_pages(process.page_table, page, va, num_pages, permissions);
-            process.size += num_pages * PAGE_SIZE;
+        if flags & elf::abi::PF_X != 0 {
+            permissions |= EXECUTE_ONLY;
+        }
 
-            unsafe {
-                ptr::copy_nonoverlapping(loadable.as_ptr(), page as *mut u8, file_size);
-            }
+        let loadable = &buffer[offset..offset + file_size];
+
+        map_code_pages(process.page_table, page, va, num_pages, permissions);
+        process.size += num_pages * PAGE_SIZE;
+
+        unsafe {
+            ptr::copy_nonoverlapping(loadable.as_ptr(), page as *mut u8, file_size);
         }
     }
 

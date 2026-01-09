@@ -9,7 +9,7 @@ pub static mut END_OF_KERNEL_TEXT: usize = 0; // re-assign later in main::_start
 pub static mut TRAMPOLINE_CODE_ADDRESS: usize = 0; // // re-assign later in main::_start
 pub static mut KERNEL_START: usize = 0;
 
-pub const STACK_START: usize = TRAMPOLINE - 12 * PAGE_SIZE;
+pub const STACK_START: usize = TRAMPOLINE - 8 * PAGE_SIZE;
 
 pub const MAX_VA: usize = 0xffffffffffffffff;
 pub const VALID_BIT: usize = 1;
@@ -48,7 +48,6 @@ pub const RAM_STOP: usize = 0x80000000 + 2_14_74_83_648;
 pub const TIMER_EXTENION_ID: usize = 0x54494D45;
 
 pub const STACK_PAGES: usize = 6;
-pub const HEAP_PAGES: usize = 10;
 
 pub static mut TRAMPOLINE_OFFSET: usize = 0;
 

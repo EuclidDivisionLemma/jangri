@@ -1,12 +1,19 @@
-use core::{arch::asm, ffi::c_int, ptr::slice_from_raw_parts_mut};
+use core::{
+    arch::asm,
+    ffi::{CStr, c_int},
+    ptr::slice_from_raw_parts_mut,
+};
 
 use alloc::format;
 
 use crate::{
-    file::{FILES, allocate_file},
+    file::{self, FILES, allocate_file, exists, traverse_path},
     pipe::allocate_pipe,
-    process::CURRENT_PROCESS,
-    syscall::process::{exit, fork, wait},
+    process::{CURRENT_PROCESS, ProcessState},
+    syscall::{
+        io::Error,
+        process::{execve, exit, fork, wait},
+    },
     traps::TrapFrame,
     vm::{self, translate_virtual_address},
 };
@@ -14,7 +21,7 @@ use crate::{
 pub mod io;
 pub mod process;
 
-pub const SYSCALLS: [(Syscall, fn(&TrapFrame) -> usize); 10] = [
+pub const SYSCALLS: [(Syscall, fn(&TrapFrame) -> usize); 13] = [
     (Syscall::Open, io::open),
     (Syscall::Read, io::read),
     (Syscall::Write, io::write),
@@ -25,6 +32,9 @@ pub const SYSCALLS: [(Syscall, fn(&TrapFrame) -> usize); 10] = [
     (Syscall::Exit, exit),
     (Syscall::Fork, fork),
     (Syscall::Wait, wait),
+    (Syscall::Execve, execve),
+    (Syscall::Dup2, dup2),
+    (Syscall::Chdir, chdir),
 ];
 
 #[derive(PartialEq, Eq, PartialOrd, Ord)]
@@ -39,6 +49,9 @@ pub enum Syscall {
     Exit = 800,
     Fork = 900,
     Wait = 1000,
+    Execve = 1100,
+    Dup2 = 1200,
+    Chdir = 1300,
 }
 
 pub fn stdout<'a>(text: &'a str) {
@@ -97,8 +110,8 @@ pub fn pipe(trapframe: &TrapFrame) -> usize {
         )
     };
 
-    fds[0] = reader.fd as c_int;
-    fds[1] = writer.fd as c_int;
+    fds[0] = *reader.fd.borrow() as c_int;
+    fds[1] = *writer.fd.borrow() as c_int;
 
     0
 }
@@ -122,4 +135,66 @@ pub fn sbrk(trapframe: &TrapFrame) -> usize {
             Err(e) => panic!("HEAP ALLOCATION FAILED: {}", e),
         }
     }
+}
+
+pub fn dup2(trapframe: &TrapFrame) -> usize {
+    let fd1 = trapframe.a0;
+    let fd2 = trapframe.a1;
+
+    if fd1 == fd2 {
+        return fd2;
+    }
+
+    if let Some(_) = unsafe { FILES.get(&fd2) } {
+        unsafe {
+            FILES.remove(&fd2);
+        }
+    }
+
+    match unsafe { FILES.get(&fd1) } {
+        Some(file) => {
+            let new_file = file.clone();
+            *new_file.fd.borrow_mut() = fd2;
+
+            unsafe {
+                FILES.insert(fd2, new_file);
+            }
+
+            fd2
+        }
+        None => -Error::EBADF as usize,
+    }
+}
+
+pub fn chdir(trapframe: &TrapFrame) -> usize {
+    let path = unsafe {
+        CStr::from_ptr(
+            translate_virtual_address(trapframe.page_table, trapframe.a0).unwrap() as *const u8,
+        )
+        .to_str()
+        .unwrap()
+    };
+
+    let current_process = unsafe { &mut **CURRENT_PROCESS.as_mut().unwrap() };
+
+    if !exists(path).unwrap() {
+        return -Error::ENOENT as usize;
+    }
+
+    let inode = match traverse_path(path, false) {
+        Ok(v) => v,
+        Err(e) if let crate::error::Error::NoSuchEntryInDirectory { name: _ } = e => {
+            return -Error::ENOTDIR as usize;
+        }
+        Err(e) if let crate::error::Error::FileDoesNotExist { path: _ } = e => {
+            return -Error::ENOENT as usize;
+        }
+        Err(e) => panic!("IN CHDIR: {}", e),
+    };
+
+    if let ProcessState::Running { cwd: _ } = &current_process.state {
+        current_process.state = ProcessState::Running { cwd: inode }
+    }
+
+    0
 }

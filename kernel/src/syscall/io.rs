@@ -1,29 +1,20 @@
 use core::{
-    cmp::min,
-    mem,
-    num::{NonZero, NonZeroUsize},
-    ops::{BitAnd, Index, Neg},
-    ptr::slice_from_raw_parts_mut,
+    num::NonZeroUsize,
+    ops::{BitAnd, Neg},
     str,
 };
 
-use alloc::{
-    format, slice,
-    string::String,
-    vec::{self, Vec},
-};
+use alloc::{slice, vec::Vec};
 use ringbuffer::RingBuffer;
-use riscv::register::satp::Mode;
 
 use crate::{
     DEVICE,
-    drivers::uart::{self, INPUT_BUFFER, READ, console_write, console_write_bytes},
-    file::{self, FILES, File, FileType, STDERR, STDIN, STDOUT, allocate_file},
+    drivers::uart::{self, INPUT_BUFFER, READ, console_write_bytes},
+    file::{self, FILES, FileType, STDERR, STDIN, STDOUT, allocate_file},
     fs::sfs::{
-        FILE_NAME_SIZE, InodeEntry, flush_data_blocks, flush_inodes, free_inode, read_inode,
-        read_inode_data, write_inode_data,
+        FILE_NAME_SIZE, InodeEntry, flush_data_blocks, flush_inodes, read_inode, read_inode_data,
+        write_inode_data,
     },
-    syscall::stdout,
     traps::TrapFrame,
     vm::translate_virtual_address,
 };
@@ -334,7 +325,7 @@ pub fn read(trapframe: &TrapFrame) -> usize {
             FileType::INode {
                 inode,
                 offset,
-                append,
+                append: _,
             } => {
                 if *offset > inode.size.get() {
                     return 0;
@@ -348,7 +339,7 @@ pub fn read(trapframe: &TrapFrame) -> usize {
                     Err(e) => panic!("FILE READ - {:?}", e),
                 };
                 buffer.copy_from_slice(&data);
-                return num_bytes;
+                return data.len();
             }
             FileType::Device { inode: _, major: _ } | FileType::Free => {
                 panic!("io::read CALLED ON A DEVICE OR FREE INODE");
@@ -365,8 +356,8 @@ pub fn close(trapframe: &TrapFrame) -> usize {
         Some(file) => match &*file.file_type.borrow() {
             FileType::INode {
                 inode,
-                offset,
-                append,
+                offset: _,
+                append: _,
             } => {
                 flush_data_blocks(&DEVICE, true);
                 flush_inodes(&DEVICE).unwrap();
