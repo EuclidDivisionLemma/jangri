@@ -4,6 +4,7 @@ use core::{
     mem::transmute,
 };
 
+use alloc::format;
 use riscv::{
     interrupt::{
         Trap,
@@ -14,11 +15,11 @@ use riscv::{
 
 use crate::{
     constants::{TIME_SLICE, TRAMPOLINE, TRAMPOLINE_OFFSET, TRAPFRAME, UART_ID},
-    drivers::uart::{self, console_write},
+    drivers::uart::{self},
     error::{Error, Result},
     plic,
-    process::{CURRENT_PROCESS, yield_cpu},
-    syscall::{self},
+    process::{CURRENT_PROCESS, wake_up, yield_cpu},
+    syscall::{self, stdout},
 };
 
 unsafe extern "C" {
@@ -261,6 +262,14 @@ pub fn handle_exceptions(cause: Scause) {
     if cause.cause() == Trap::Exception(Exception::UserEnvCall as usize) {
         syscall::handle();
     } else {
-        panic!("{:?}", cause);
+        let current_process = unsafe { &mut **CURRENT_PROCESS.as_mut().unwrap() };
+        stdout(&format!(
+            "RUNNING PROCESS name = {}, pid = {}\n{:?}\n",
+            &current_process.name, current_process.id, cause
+        ));
+        wake_up(current_process.id);
+        current_process.state = crate::process::ProcessState::Terminated {
+            return_value: Err(cause.bits()),
+        };
     }
 }

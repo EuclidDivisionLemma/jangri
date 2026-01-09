@@ -66,9 +66,8 @@ pub enum ProcessState {
     Running {
         cwd: Rc<MemoryINode>,
     },
-    Waiting,
     Terminated {
-        return_value: isize,
+        return_value: core::result::Result<isize, usize>,
     },
     NotUsed,
     Sleeping {
@@ -79,7 +78,7 @@ pub enum ProcessState {
 
 pub struct Process<'a> {
     pub id: usize,
-    name: String,
+    pub name: String,
 
     /// CAUTION: Holds the bottom of the stack
     kernel_stack: usize,
@@ -95,7 +94,7 @@ pub struct Process<'a> {
 }
 
 impl<'a> Process<'a> {
-    fn default(id: usize) -> Self {
+    pub fn default(id: usize) -> Self {
         Process {
             id,
             name: "".into(),
