@@ -356,7 +356,7 @@ pub fn permissions_from_page_table_entry(page_table_entry: usize) -> usize {
 }
 
 pub fn copy(old: usize, new: usize, size: usize) -> Result<()> {
-    for page_va in (0..size).step_by(PAGE_SIZE) {
+    for page_va in (0..=size).step_by(PAGE_SIZE) {
         let pte_address = match get_page_table_entry_address(old, page_va, false) {
             Ok(v) => v,
             Err(e) if e == Error::PageNotAllocated => continue,
@@ -385,7 +385,7 @@ pub fn copy(old: usize, new: usize, size: usize) -> Result<()> {
         )?;
     }
 
-    for page_va in (STACK_START..STACK_START + 3 * PAGE_SIZE).step_by(PAGE_SIZE) {
+    for page_va in (STACK_START..STACK_START + STACK_PAGES * PAGE_SIZE).step_by(PAGE_SIZE) {
         let pte_address = match get_page_table_entry_address(old, page_va, false) {
             Ok(v) => v,
             Err(_) => panic!(

@@ -234,7 +234,7 @@ pub fn map_other_pages(page_table: usize, final_code: usize, process: &mut Proce
         page_table,
         STACK_START,
         stack,
-        3 * PAGE_SIZE,
+        STACK_PAGES * PAGE_SIZE,
         READ_WRITE | USER_MODE,
     )?;
 
@@ -260,7 +260,7 @@ pub fn map_other_pages(page_table: usize, final_code: usize, process: &mut Proce
 
     trapframe.kernel_page_table = Sv48 | (unsafe { KERNEL_PAGE_TABLE } >> 12);
     trapframe.kernel_stack = process.kernel_stack;
-    trapframe.sp = TRAMPOLINE - 9 * PAGE_SIZE;
+    trapframe.sp = TRAMPOLINE - 2 * PAGE_SIZE;
 
     Ok(())
 }
