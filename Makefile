@@ -1,7 +1,7 @@
 make: build
 	cd kernel && export RUSTFLAGS="-C force-frame-pointers=yes" && cargo run
 
-build: init sh cat
+build: init
 	cd kernel && cargo build
 
 clean:
@@ -9,12 +9,3 @@ clean:
 
 init:
 	riscv64-unknown-elf-gcc -specs=picolibc.specs -nostartfiles -march=rv64imac_zicsr -mabi=lp64 -T./userspace/userspace.ld -fomit-frame-pointer ./userspace/crt0.S ./userspace/init.c ./userspace/syscalls.c -o ./userspace/init.elf
-
-sh:
-	riscv64-unknown-elf-gcc -specs=picolibc.specs -nostartfiles -march=rv64imac_zicsr -mabi=lp64 -T./userspace/userspace.ld -fomit-frame-pointer ./userspace/crt0.S ./userspace/sh.c ./userspace/syscalls.c -o ./userspace/sh.elf
-
-cat:
-	riscv64-unknown-elf-gcc -specs=picolibc.specs -nostartfiles -march=rv64imac_zicsr -mabi=lp64 -T./userspace/userspace.ld -fomit-frame-pointer ./userspace/crt0.S ./userspace/cat.c ./userspace/syscalls.c -o ./userspace/cat.elf
-
-about:
-	riscv64-unknown-elf-gcc -specs=picolibc.specs -nostartfiles -march=rv64imac_zicsr -mabi=lp64 -T./userspace/userspace.ld -fomit-frame-pointer ./userspace/crt0.S ./userspace/about.c ./userspace/syscalls.c -o ./userspace/about.elf

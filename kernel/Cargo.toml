@@ -6,10 +6,6 @@ edition = "2024"
 [dependencies]
 ringbuffer = "0.16.0"
 riscv = "0.15.0"
-# wasmtime = {version = "40.0.1",
-#             default-features = false,
-#             features = ["runtime", "component-model", "pulley"]}
-
 
 [dependencies.elf]
 version = "0.8.0"
@@ -17,3 +13,6 @@ default-features = false
 
 [build-dependencies]
 cc = "1.2.48"
+
+[profile.dev]
+panic = "abort"

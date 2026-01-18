@@ -156,10 +156,11 @@ pub fn traverse_path(path: &str, parent: bool) -> Result<Rc<MemoryINode>> {
         inode = read_inode(ROOT_INODE, &DEVICE);
     } else {
         inode = if let Some(process) = unsafe { CURRENT_PROCESS.as_ref() } {
-            if let ProcessState::Running { cwd } = &process.state {
-                cwd.clone()
-            } else {
-                panic!("PROCESS NOT RUNNING BUT TRAVERSED PATH");
+            match &process.state {
+                ProcessState::Ready { cwd }
+                | ProcessState::Running { cwd }
+                | ProcessState::Sleeping { cwd, sleep_on: _ } => cwd.clone(),
+                _ => panic!("OTHER STATE IN TRAVERSE_PATH"),
             }
         } else {
             read_inode(ROOT_INODE, &DEVICE)
@@ -189,7 +190,7 @@ pub fn traverse_path(path: &str, parent: bool) -> Result<Rc<MemoryINode>> {
 pub fn exists(path: &str) -> Result<bool> {
     match traverse_path(path, false) {
         Ok(_) => Ok(true),
-        Err(e) if let Error::NoSuchEntryInDirectory { name: _ } = e => Ok(false),
+        Err(e) if matches!(e, Error::NoSuchEntryInDirectory { name: _ }) => Ok(false),
         Err(e) => Err(e),
     }
 }

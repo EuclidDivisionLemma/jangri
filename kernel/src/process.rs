@@ -1,6 +1,6 @@
 use crate::{
-    DEVICE,
-    allocator::{allocate, deallocate},
+    DEVICE, INIT,
+    allocator::allocate,
     constants::{
         EXECUTE_ONLY, KERNEL_PAGE_TABLE, MAXIMUM_PROCESS, PAGE_SIZE, READ_EXECUTE, READ_ONLY,
         READ_WRITE, ROOT_INODE, STACK_PAGES, STACK_START, Sv48, TRAMPOLINE,
@@ -8,7 +8,6 @@ use crate::{
     },
     error::{Error, Result},
     fs::sfs::{MemoryINode, read_inode},
-    init_end, init_start,
     scheduler::{Context, switch_to_scheduler_context},
     syscall::stdout,
     traps::{TrapFrame, return_to_user_mode, set_up_supervisor_to_user_mode_transition, user_trap},
@@ -27,9 +26,8 @@ use alloc::{
 use core::{
     arch::global_asm,
     cell::LazyCell,
-    f64::math::ceil,
     mem::{self, transmute},
-    ptr,
+    ptr::{self, null_mut, write_volatile},
 };
 use elf::{ElfBytes, endian::NativeEndian};
 
@@ -68,9 +66,10 @@ pub struct Process<'a> {
     pub children: Option<Vec<&'a Process<'a>>>,
     pub page_table: usize,
     pub code: usize,
-    pub trapframe: Option<Box<TrapFrame>>,
+    pub trapframe: *mut TrapFrame,
     pub fds: Vec<usize>,
     pub size: usize,
+    pub argv_addr: Vec<usize>,
 }
 
 impl<'a> Process<'a> {
@@ -85,9 +84,10 @@ impl<'a> Process<'a> {
             children: None,
             page_table: 0,
             code: 0,
-            trapframe: None,
+            trapframe: null_mut(),
             fds: Vec::new(),
             size: 0,
+            argv_addr: Vec::new(),
         }
     }
 
@@ -99,26 +99,25 @@ impl<'a> Process<'a> {
         process.kernel_stack = kernel_stack_address(process.id);
         process.context.sp = process.kernel_stack + PAGE_SIZE;
         process.context.ra = prepare_first_time_execution as usize;
+        process.size = self.size;
 
-        if let Some(child_trapframe) = process.trapframe.as_mut()
-            && let Some(parent_trapframe) = self.trapframe.as_mut()
-        {
-            *child_trapframe = (*parent_trapframe).clone();
-            child_trapframe.a0 = 0;
-            parent_trapframe.a0 = process.id;
+        unsafe {
+            *process.trapframe = (*self.trapframe).clone();
+            (*process.trapframe).a0 = 0;
+            (*self.trapframe).a0 = process.id;
 
-            child_trapframe.page_table = process.page_table;
-            child_trapframe.kernel_stack = process.kernel_stack;
-            child_trapframe.satp = Sv48 | (child_trapframe.page_table >> 12);
-
-            map(
-                process.page_table,
-                TRAPFRAME,
-                (&raw const **child_trapframe).addr(),
-                PAGE_SIZE,
-                READ_WRITE,
-            )?;
+            (*process.trapframe).page_table = process.page_table;
+            (*process.trapframe).kernel_stack = process.kernel_stack;
+            (*process.trapframe).satp = Sv48 | ((*process.trapframe).page_table >> 12);
         }
+
+        map(
+            process.page_table,
+            TRAPFRAME,
+            process.trapframe.addr(),
+            PAGE_SIZE,
+            READ_WRITE,
+        )?;
 
         process.parent = Some(&*self);
 
@@ -148,13 +147,15 @@ impl<'a> Process<'a> {
         let trapframe = allocate(1)?;
         let page_table = allocate(1)?;
 
-        self.trapframe = Some(unsafe { Box::from_raw(trapframe as *mut TrapFrame) });
+        self.trapframe = trapframe as *mut TrapFrame;
 
-        let trapframe = self.trapframe.as_mut().unwrap();
+        unsafe {
+            write_volatile(self.trapframe, TrapFrame::default());
 
-        trapframe.user_trap_address = user_trap as usize;
-        trapframe.page_table = page_table;
-        trapframe.satp = Sv48 | (page_table >> 12);
+            (*self.trapframe).user_trap_address = user_trap as usize;
+            (*self.trapframe).page_table = page_table;
+            (*self.trapframe).satp = Sv48 | (page_table >> 12);
+        }
 
         Ok(page_table)
     }
@@ -174,6 +175,13 @@ impl<'a> Process<'a> {
             ptr::write_bytes(kernel_stack_address(self.id) as *mut u8, 0, PAGE_SIZE);
         }
     }
+
+    pub fn spawn(&'static self) -> Result<&'static mut Self> {
+        let process = assign_process()?;
+
+        process.parent = Some(&self);
+        Ok(process)
+    }
 }
 
 pub fn yield_cpu() {
@@ -191,7 +199,7 @@ pub fn yield_cpu() {
 
 pub fn assign_process() -> Result<&'static mut Process<'static>> {
     let page_table = allocate(1)?;
-    let trapframe = allocate(1)?;
+    let trapframe = allocate(1)? as *mut TrapFrame;
 
     for process in unsafe { &mut *PROCESSES } {
         if let ProcessState::NotUsed = process.state {
@@ -200,13 +208,15 @@ pub fn assign_process() -> Result<&'static mut Process<'static>> {
             };
             process.page_table = page_table;
 
-            process.trapframe = Some(unsafe { Box::from_raw(trapframe as *mut TrapFrame) });
-            **process.trapframe.as_mut().unwrap() = TrapFrame::default();
-            process.trapframe.as_mut().unwrap().page_table = page_table;
-            process.trapframe.as_mut().unwrap().satp = Sv48 | page_table >> 12;
-            process.trapframe.as_mut().unwrap().kernel_page_table =
-                Sv48 | (unsafe { KERNEL_PAGE_TABLE } >> 12);
-            process.trapframe.as_mut().unwrap().user_trap_address = user_trap as usize;
+            process.trapframe = trapframe;
+
+            unsafe {
+                *trapframe = TrapFrame::default();
+                (*trapframe).page_table = page_table;
+                (*trapframe).satp = Sv48 | page_table >> 12;
+                (*trapframe).kernel_page_table = Sv48 | (KERNEL_PAGE_TABLE >> 12);
+                (*trapframe).user_trap_address = user_trap as usize;
+            }
 
             return Ok(process);
         }
@@ -262,36 +272,34 @@ pub fn map_other_pages(page_table: usize, final_code: usize, process: &mut Proce
         READ_EXECUTE,
     )?;
 
-    let trapframe = process.trapframe.as_mut().ok_or(Error::TrapFrameNone)?;
+    let trapframe = process.trapframe;
 
     map(
         page_table,
         TRAPFRAME,
-        (&raw const **trapframe).addr(),
+        trapframe.addr(),
         PAGE_SIZE,
         READ_WRITE,
     )?;
 
-    trapframe.kernel_page_table = Sv48 | (unsafe { KERNEL_PAGE_TABLE } >> 12);
-    trapframe.kernel_stack = process.kernel_stack;
-    trapframe.sp = TRAMPOLINE - 2 * PAGE_SIZE;
+    unsafe {
+        (*trapframe).kernel_page_table = Sv48 | (KERNEL_PAGE_TABLE >> 12);
+        (*trapframe).kernel_stack = process.kernel_stack;
+        (*trapframe).sp = TRAMPOLINE - 2 * PAGE_SIZE;
+    }
 
     Ok(())
 }
 
 pub fn start_init() {
-    let start = unsafe { &init_start as *const u8 as usize };
-    let end = unsafe { &init_end as *const u8 as usize };
-    let size = end - start;
     let mut page = 0;
     let mut max_code_page_end_va = 0;
 
     let process = assign_process().expect("INIT FAILED - FAILED TO ASSIGN PROCESS");
     process.name = "init".into();
 
-    let buffer = unsafe { core::slice::from_raw_parts(start as *const u8, size) };
     let elf_data: ElfBytes<NativeEndian> =
-        elf::ElfBytes::minimal_parse(buffer).expect("INIT FAILED - ELF ERROR");
+        elf::ElfBytes::minimal_parse(INIT).expect("INIT FAILED - ELF ERROR");
 
     let program_headers = elf_data
         .segments()
@@ -302,7 +310,7 @@ pub fn start_init() {
         let file_size = header.p_filesz as usize;
         let mem_size = header.p_memsz as usize;
 
-        let num_pages = ceil(mem_size as f64 / PAGE_SIZE as f64) as usize;
+        let num_pages = (mem_size + PAGE_SIZE - 1) / PAGE_SIZE;
 
         if num_pages == 0 {
             continue;
@@ -319,8 +327,6 @@ pub fn start_init() {
             max_code_page_end_va = va + num_pages * PAGE_SIZE;
         }
 
-        stdout(&format!("{}, {}, {}\n", va, mem_size, num_pages));
-
         let mut permissions = 0;
 
         if flags & elf::abi::PF_R != 0 {
@@ -335,7 +341,7 @@ pub fn start_init() {
             permissions |= EXECUTE_ONLY;
         }
 
-        let loadable = &buffer[offset..offset + file_size];
+        let loadable = &INIT[offset..offset + file_size];
 
         map_code_pages(process.page_table, page, va, num_pages, permissions);
         process.size += num_pages * PAGE_SIZE;
@@ -352,17 +358,18 @@ pub fn start_init() {
     map_other_pages(process.page_table, max_code_page_end_va, process)
         .expect("INIT FAILED - ERROR WHILE MAPPING PAGES");
 
-    let trapframe = process
-        .trapframe
-        .as_mut()
-        .expect("TRAPFRAME NONE IN FIRST TIME EXECUTION");
+    let trapframe = process.trapframe;
 
-    trapframe.sepc = elf_data.ehdr.e_entry as usize;
+    unsafe {
+        (*trapframe).sepc = elf_data.ehdr.e_entry as usize;
+    }
     process.context.ra = prepare_first_time_execution as usize;
 
-    process.context.sp = trapframe.kernel_stack + PAGE_SIZE;
-    trapframe.brk.set(max_code_page_end_va);
-    trapframe.heap_end.set(max_code_page_end_va);
+    unsafe {
+        process.context.sp = (*trapframe).kernel_stack + PAGE_SIZE;
+        (*trapframe).brk.set(max_code_page_end_va);
+        (*trapframe).heap_end.set(max_code_page_end_va);
+    }
 }
 
 /// This function is called when a process has to be executed for the first time.
@@ -373,17 +380,14 @@ pub fn prepare_first_time_execution() {
             .expect("INIT FAILED - NO CURRENT PROCESS IN FIRST TIME EXECUTION")
     };
 
-    let trapframe = process
-        .trapframe
-        .as_mut()
-        .expect("INIT FAILED - TRAPFRAME NONE IN FIRST TIME EXECUTION");
+    let trapframe = process.trapframe;
 
     set_up_supervisor_to_user_mode_transition()
         .expect("INIT FAILED - CONTEXT NONE WHILE RETURNING TO USER MODE");
 
     unsafe {
         let return_to_user_mode_ptr: fn(usize) -> ! = transmute(TRAMPOLINE + TRAMPOLINE_OFFSET);
-        return_to_user_mode_ptr((&raw const **trapframe).addr());
+        return_to_user_mode_ptr(trapframe.addr());
     }
 }
 

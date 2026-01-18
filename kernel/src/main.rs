@@ -1,12 +1,6 @@
 #![no_std]
-#![cfg_attr(not(test), no_main)]
-#![feature(core_float_math)]
+#![no_main]
 #![allow(static_mut_refs)]
-#![feature(str_from_raw_parts)]
-#![feature(map_try_insert)]
-#![feature(if_let_guard)]
-#![feature(guard_patterns)]
-#![feature(str_as_str)]
 
 use core::arch::global_asm;
 
@@ -60,57 +54,13 @@ global_asm!(
     "#
 );
 
-global_asm!(
-    r#"
-    .section .rodata
-
-    .global init_start
-    .global init_end
-
-    .global sh_start
-    .global sh_end
-
-    .global cat_start
-    .global cat_end
-
-    .global about_start
-    .global about_end
-
-    init_start:
-        .incbin "../userspace/init.elf"
-    init_end:
-
-    sh_start:
-        .incbin "../userspace/sh.elf"
-    sh_end:
-
-    cat_start:
-        .incbin "../userspace/cat.elf"
-    cat_end:
-
-    about_start:
-        .incbin "../userspace/about.elf"
-    about_end:
-    "#
-);
+pub const INIT: &[u8] = include_bytes!("../../userspace/init.elf");
 
 unsafe extern "C" {
     static kernel_end: u8;
     static end_of_kernel_text: u8;
     static kernel_start: u8;
     static trampoline_code_address: u8;
-
-    static init_start: u8;
-    static init_end: u8;
-
-    static sh_start: u8;
-    static sh_end: u8;
-
-    static cat_start: u8;
-    static cat_end: u8;
-
-    static about_start: u8;
-    static about_end: u8;
 }
 
 pub const DEVICE: RamDisk = RamDisk;

@@ -192,13 +192,11 @@ pub fn user_trap() {
     let sepc = riscv::register::sepc::read();
 
     if let Some(process) = unsafe { &mut crate::process::CURRENT_PROCESS } {
-        let trapframe = process
-            .trapframe
-            .as_mut()
-            .expect("TRAPFRAME NONE WHILE HANDLING USER TRAP");
+        let trapframe = process.trapframe;
 
-        trapframe.sepc = sepc;
-
+        unsafe {
+            (*trapframe).sepc = sepc;
+        }
         if cause.is_interrupt() {
             handle_interrupts(cause);
         } else if cause.is_exception() {
@@ -210,7 +208,8 @@ pub fn user_trap() {
 
         unsafe {
             let return_to_user_mode_ptr: fn(usize) -> ! = transmute(TRAMPOLINE + TRAMPOLINE_OFFSET);
-            return_to_user_mode_ptr((&raw const **trapframe).addr());
+            let trapframe = process.trapframe;
+            return_to_user_mode_ptr(trapframe.addr());
         }
     } else {
         panic!("USER TRAP, BUT NO RUNNING PROCESS")
@@ -232,8 +231,8 @@ pub fn set_up_supervisor_to_user_mode_transition() -> Result<()> {
 
     unsafe {
         let process = CURRENT_PROCESS.as_ref().unwrap();
-        let trapframe = process.trapframe.as_ref().ok_or(Error::TrapFrameNone)?;
-        riscv::register::sepc::write(trapframe.sepc);
+        let trapframe = process.trapframe;
+        riscv::register::sepc::write((*trapframe).sepc);
         riscv::register::sstatus::set_spp(riscv::register::sstatus::SPP::User);
         riscv::register::sstatus::set_spie();
     }
@@ -264,8 +263,12 @@ pub fn handle_exceptions(cause: Scause) {
     } else {
         let current_process = unsafe { &mut **CURRENT_PROCESS.as_mut().unwrap() };
         stdout(&format!(
-            "RUNNING PROCESS name = {}, pid = {}\n{:?}\n",
-            &current_process.name, current_process.id, cause
+            "RUNNING PROCESS name = {}, pid = {}, sepc = {}, stval = {}\n{:?}\n",
+            &current_process.name,
+            current_process.id,
+            riscv::register::sepc::read(),
+            riscv::register::stval::read(),
+            cause
         ));
         wake_up(current_process.id);
         current_process.state = crate::process::ProcessState::Terminated {

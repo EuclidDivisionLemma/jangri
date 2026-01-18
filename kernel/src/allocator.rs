@@ -1,7 +1,6 @@
 use core::{
     alloc::{GlobalAlloc, Layout},
     cell::{Cell, RefCell},
-    f64::math::ceil,
     ptr::{null_mut, write_bytes},
 };
 
@@ -59,7 +58,7 @@ unsafe impl GlobalAlloc for Allocator {
     unsafe fn alloc(&self, layout: core::alloc::Layout) -> *mut u8 {
         let mut num_pages = 1;
         if layout.size() > PAGE_SIZE {
-            num_pages = ceil(layout.size() as f64 / PAGE_SIZE as f64) as usize;
+            num_pages = (layout.size() + PAGE_SIZE - 1) / PAGE_SIZE;
         }
 
         match find_contiguous(num_pages) {
@@ -80,7 +79,7 @@ unsafe impl GlobalAlloc for Allocator {
         let mut num_pages = 1;
 
         if layout.size() > PAGE_SIZE {
-            num_pages = ceil(layout.size() as f64 / PAGE_SIZE as f64) as usize;
+            num_pages = (layout.size() + PAGE_SIZE - 1) / PAGE_SIZE;
         }
 
         let index = (ptr.addr() - unsafe { KERNEL_END }) / PAGE_SIZE;

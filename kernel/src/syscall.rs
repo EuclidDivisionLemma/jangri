@@ -11,9 +11,9 @@ use crate::{
     pipe::allocate_pipe,
     process::{CURRENT_PROCESS, ProcessState},
     syscall::{
-        fs::chdir,
+        fs::{chdir, mkdir},
         io::Error,
-        process::{execve, exit, fork, wait},
+        process::{exit, fork, wait},
     },
     traps::TrapFrame,
     vm::{self, translate_virtual_address},
@@ -34,9 +34,9 @@ pub const SYSCALLS: [(Syscall, fn(&TrapFrame) -> usize); 13] = [
     (Syscall::Exit, exit),
     (Syscall::Fork, fork),
     (Syscall::Wait, wait),
-    (Syscall::Execve, execve),
     (Syscall::Dup2, dup2),
     (Syscall::Chdir, chdir),
+    (Syscall::Mkdir, mkdir),
 ];
 
 #[derive(PartialEq, Eq, PartialOrd, Ord)]
@@ -51,9 +51,9 @@ pub enum Syscall {
     Exit = 800,
     Fork = 900,
     Wait = 1000,
-    Execve = 1100,
     Dup2 = 1200,
     Chdir = 1300,
+    Mkdir = 1400,
 }
 
 pub fn stdout<'a>(text: &'a str) {
@@ -64,7 +64,7 @@ pub fn stdout<'a>(text: &'a str) {
             "li a6, 2",
             "mv a0, {}",
             "ecall",
-            in(reg) *char);
+            in(reg) *char as i64);
         }
     }
 }
@@ -73,27 +73,32 @@ pub fn handle() {
     let syscall_no: usize;
 
     if let Some(process) = unsafe { &mut CURRENT_PROCESS } {
-        let trapframe = process
-            .trapframe
-            .as_mut()
-            .expect("TRAPFRAME NONE WHILE HANDLING TRAP");
-        syscall_no = trapframe.a7;
-
-        // sepc holds the program counter value at the point of trap
-        // But when the trap is due to a system call, we need to execute the next instruction
-        trapframe.sepc += 4;
+        let trapframe = process.trapframe;
 
         unsafe {
+            syscall_no = (*trapframe).a7;
+
+            // sepc holds the program counter value at the point of trap
+            // But when the trap is due to a system call, we need to execute the next instruction
+            (*trapframe).sepc += 4;
+
             riscv::interrupt::supervisor::enable();
         }
 
         for (no, handler) in SYSCALLS {
             if syscall_no == no as usize {
-                trapframe.a0 = handler(&trapframe);
+                unsafe {
+                    let return_value = handler(&*trapframe);
+                    let trapframe = process.trapframe;
+
+                    (*trapframe).a0 = return_value;
+                }
                 return;
             }
         }
-        trapframe.a0 = -1isize as usize;
+        unsafe {
+            (*trapframe).a0 = -1isize as usize;
+        }
     } else {
         panic!("SYSCALLd, BUT NO RUNNING PROCESS")
     }

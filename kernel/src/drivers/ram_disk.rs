@@ -33,7 +33,7 @@ impl Storage for RamDisk {
 
         unsafe {
             RAM_DISK[start_block * BLOCK_SIZE..start_block * BLOCK_SIZE + num_bytes]
-                .copy_from_slice(&buffer.as_slice()[..num_bytes]);
+                .copy_from_slice(&buffer[..num_bytes]);
         }
     }
 }

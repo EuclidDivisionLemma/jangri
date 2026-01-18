@@ -13,12 +13,11 @@ use crate::{
     syscall::stdout,
     traps::TrapFrame,
 };
+use core::ptr::write_volatile;
 use core::{
     arch::asm,
-    f64::math::floor,
     ptr::{self, read_volatile},
 };
-use core::{f64::math::ceil, ptr::write_volatile};
 
 #[inline(always)]
 pub fn extract_index_into_level(level: usize, virtual_address: usize) -> usize {
@@ -47,7 +46,7 @@ pub fn enable_paging() {
 }
 
 pub fn align_to_page_size(size: usize) -> usize {
-    ceil(size as f64 / PAGE_SIZE as f64) as usize * PAGE_SIZE
+    (size + PAGE_SIZE - 1) / PAGE_SIZE * PAGE_SIZE
 }
 
 pub fn initialise_kernel_page_table() -> Result<()> {
