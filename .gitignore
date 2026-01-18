@@ -1,4 +1,4 @@
-/kernel/target
+/target
 .rules
 build
 .vscode
