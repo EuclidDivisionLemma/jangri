@@ -8,6 +8,7 @@ use crate::{
     constants::{KERNEL_END, RAM_STOP},
     fs::sfs::MemoryINode,
     process::{Process, ProcessState, are_interrupts_enabled},
+    scheduler::Context,
 };
 
 static GLOBAL_STATE: Once<GlobalState> = Once::new();
@@ -16,6 +17,7 @@ pub struct GlobalState {
     allocator: Mutex<PageAllocator>,
     processes: RwLock<BTreeMap<usize, Arc<Mutex<Process>>>>,
     current_process: Mutex<Option<Arc<Mutex<Process>>>>,
+    pub scheduler_context: Context,
 }
 
 impl GlobalState {
@@ -42,6 +44,7 @@ impl GlobalState {
                 riscv::interrupt::supervisor::disable,
                 are_interrupts_enabled,
             ),
+            scheduler_context: Context::default(),
         };
 
         GLOBAL_STATE.call_once(|| state)

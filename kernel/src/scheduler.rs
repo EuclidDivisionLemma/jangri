@@ -28,8 +28,6 @@ pub struct Context {
     pub s11: usize,
 }
 
-pub static mut SCHEDULER_CONTEXT: LazyCell<Context> = LazyCell::new(|| Context::default());
-
 unsafe extern "C" {
     /// Switches context from the old context to the new context.
     /// Called inside scheduler to switch from scheduler context to process context
@@ -100,9 +98,11 @@ pub fn schedule() -> ! {
             process.process_state = ProcessState::Running { cwd: cwd.clone() };
             drop(process);
 
+            let scheduler_context = &raw const state.scheduler_context as *mut Context;
+
             unsafe {
                 state.set_current_process(locked_process.clone());
-                switch_context((&raw mut *SCHEDULER_CONTEXT).addr(), context.addr());
+                switch_context(scheduler_context.addr(), context.addr());
                 found = true;
             }
         }
@@ -123,7 +123,9 @@ pub fn switch_to_scheduler_context() {
     context = &raw const process.context;
     drop(process);
 
+    let scheduler_context = &raw const state.scheduler_context as *mut Context;
+
     unsafe {
-        switch_context(context.addr(), (&raw mut *SCHEDULER_CONTEXT).addr());
+        switch_context(context.addr(), scheduler_context.addr());
     }
 }
