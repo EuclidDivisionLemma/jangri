@@ -1,10 +1,11 @@
 use core::{arch::global_asm, cell::LazyCell};
 
-use alloc::format;
+use sync::Lock;
 
 use crate::{
-    process::{CURRENT_PROCESS, PROCESSES, ProcessState},
-    syscall::stdout,
+    global_state::GlobalState,
+    process::ProcessState,
+    syscall::{process, stdout},
 };
 
 #[repr(C)]
@@ -79,6 +80,8 @@ global_asm!(
 );
 
 pub fn schedule() -> ! {
+    let state = GlobalState::get();
+
     loop {
         let mut found = false;
 
@@ -87,16 +90,20 @@ pub fn schedule() -> ! {
             riscv::interrupt::supervisor::disable();
         }
 
-        for process in unsafe { &mut *PROCESSES } {
-            if let ProcessState::Ready { cwd } = &process.state {
-                let context = &raw const process.context;
-                process.state = ProcessState::Running { cwd: cwd.clone() };
+        if let Some((pid, cwd)) = state.find_ready_process() {
+            let locked_process = state.get_process(pid).unwrap();
+            let context;
 
-                unsafe {
-                    CURRENT_PROCESS = Some(process);
-                    switch_context((&raw mut *SCHEDULER_CONTEXT).addr(), context.addr());
-                    found = true;
-                }
+            let mut process = locked_process.lock();
+
+            context = &raw const process.context;
+            process.process_state = ProcessState::Running { cwd: cwd.clone() };
+            drop(process);
+
+            unsafe {
+                state.set_current_process(locked_process.clone());
+                switch_context((&raw mut *SCHEDULER_CONTEXT).addr(), context.addr());
+                found = true;
             }
         }
 
@@ -108,14 +115,15 @@ pub fn schedule() -> ! {
 
 /// Switches from the current process context to the scheduler context.
 pub fn switch_to_scheduler_context() {
-    unsafe {
-        let process = &**CURRENT_PROCESS
-            .as_ref()
-            .expect("No current process in switch_to_scheduler_context");
+    let state = GlobalState::get();
+    let context;
 
-        switch_context(
-            (&raw const process.context).addr(),
-            (&raw mut *SCHEDULER_CONTEXT).addr(),
-        );
+    let process = state.get_current_process().unwrap();
+    let process = process.lock();
+    context = &raw const process.context;
+    drop(process);
+
+    unsafe {
+        switch_context(context.addr(), (&raw mut *SCHEDULER_CONTEXT).addr());
     }
 }

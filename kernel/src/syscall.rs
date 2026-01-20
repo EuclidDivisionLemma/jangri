@@ -4,16 +4,18 @@ use core::{
     ptr::slice_from_raw_parts_mut,
 };
 
-use alloc::format;
+use alloc::{format, vec::Vec};
+use sync::Lock;
 
 use crate::{
     file::{self, FILES, allocate_file, exists, traverse_path},
+    global_state::GlobalState,
     pipe::allocate_pipe,
-    process::{CURRENT_PROCESS, ProcessState},
+    process::ProcessState,
     syscall::{
         fs::{chdir, mkdir},
         io::Error,
-        process::{exit, fork, wait},
+        process::exit,
     },
     traps::TrapFrame,
     vm::{self, translate_virtual_address},
@@ -23,7 +25,7 @@ pub mod fs;
 pub mod io;
 pub mod process;
 
-pub const SYSCALLS: [(Syscall, fn(&TrapFrame) -> usize); 13] = [
+pub const SYSCALLS: [(Syscall, fn(&TrapFrame) -> usize); 11] = [
     (Syscall::Open, io::open),
     (Syscall::Read, io::read),
     (Syscall::Write, io::write),
@@ -32,8 +34,6 @@ pub const SYSCALLS: [(Syscall, fn(&TrapFrame) -> usize); 13] = [
     (Syscall::Pipe, pipe),
     (Syscall::Sbrk, sbrk),
     (Syscall::Exit, exit),
-    (Syscall::Fork, fork),
-    (Syscall::Wait, wait),
     (Syscall::Dup2, dup2),
     (Syscall::Chdir, chdir),
     (Syscall::Mkdir, mkdir),
@@ -72,8 +72,14 @@ pub fn stdout<'a>(text: &'a str) {
 pub fn handle() {
     let syscall_no: usize;
 
-    if let Some(process) = unsafe { &mut CURRENT_PROCESS } {
-        let trapframe = process.trapframe;
+    let state = GlobalState::get();
+
+    if let Some(locked_process) = state.get_current_process() {
+        let trapframe;
+
+        let process = locked_process.lock();
+        trapframe = process.trapframe;
+        drop(process);
 
         unsafe {
             syscall_no = (*trapframe).a7;
@@ -89,6 +95,7 @@ pub fn handle() {
             if syscall_no == no as usize {
                 unsafe {
                     let return_value = handler(&*trapframe);
+                    let process = locked_process.lock();
                     let trapframe = process.trapframe;
 
                     (*trapframe).a0 = return_value;
@@ -105,6 +112,13 @@ pub fn handle() {
 }
 
 pub fn pipe(trapframe: &TrapFrame) -> usize {
+    let state = GlobalState::get();
+
+    let current_process = state.get_current_process().unwrap();
+    let current_process = current_process.lock();
+
+    let state = current_process.global_state;
+
     let writer = allocate_file();
     let reader = allocate_file();
 
@@ -112,7 +126,8 @@ pub fn pipe(trapframe: &TrapFrame) -> usize {
 
     let fds = unsafe {
         &mut *slice_from_raw_parts_mut(
-            translate_virtual_address(trapframe.page_table, trapframe.a0).unwrap() as *mut c_int,
+            translate_virtual_address(state, trapframe.page_table, trapframe.a0).unwrap()
+                as *mut c_int,
             2,
         )
     };
@@ -124,6 +139,8 @@ pub fn pipe(trapframe: &TrapFrame) -> usize {
 }
 
 pub fn sbrk(trapframe: &TrapFrame) -> usize {
+    let state = GlobalState::get();
+
     enum Error {
         ENOMEM = 12,
     }
@@ -134,9 +151,14 @@ pub fn sbrk(trapframe: &TrapFrame) -> usize {
     } else if increment < 0 {
         panic!("NEGATIVE INCREMENT NOT ALLOWED YET!")
     } else {
-        match vm::allocate_heap(increment, trapframe) {
+        match vm::allocate_heap(state, increment, trapframe) {
             Ok(old_brk) => old_brk,
-            Err(e) if e == crate::error::Error::InvalidHeapSize => {
+            Err(e)
+                if matches!(
+                    e.downcast_ref().unwrap(),
+                    crate::error::Error::InvalidHeapSize
+                ) =>
+            {
                 -(Error::ENOMEM as isize) as usize
             }
             Err(e) => panic!("HEAP ALLOCATION FAILED: {}", e),

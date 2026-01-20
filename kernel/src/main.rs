@@ -5,10 +5,12 @@
 use core::arch::global_asm;
 
 use alloc::format;
+use spin::Once;
 
 use crate::{
     constants::{
-        END_OF_KERNEL_TEXT, KERNEL_END, KERNEL_START, TRAMPOLINE_CODE_ADDRESS, TRAMPOLINE_OFFSET,
+        END_OF_KERNEL_TEXT, KERNEL_END, KERNEL_HEAP_SIZE, KERNEL_PAGE_TABLE, KERNEL_START,
+        READ_WRITE, TRAMPOLINE_CODE_ADDRESS, TRAMPOLINE_OFFSET,
     },
     drivers::{
         Storage,
@@ -17,6 +19,7 @@ use crate::{
     },
     file::{allocate_file, create_file, exists, traverse_path},
     fs::sfs::{self, DiskINode, flush_data_blocks, flush_inodes, read_inode},
+    global_state::GlobalState,
     pipe::allocate_pipe,
     plic::initialise_plic,
     process::start_init,
@@ -32,6 +35,7 @@ mod drivers;
 mod error;
 mod file;
 mod fs;
+mod global_state;
 mod panic;
 mod pipe;
 mod plic;
@@ -79,7 +83,9 @@ fn intialise_constants() {
 fn main() -> ! {
     intialise_constants();
 
-    initialise_kernel_page_table().unwrap();
+    let state = GlobalState::initialise();
+
+    initialise_kernel_page_table(&state).unwrap();
 
     enable_paging();
 
@@ -94,7 +100,7 @@ fn main() -> ! {
 
     console_write("\x1b[2J\x1b[HJangri v0.0.1\n");
 
-    start_init();
+    start_init(&state);
 
     schedule();
 }

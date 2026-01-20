@@ -1,16 +1,16 @@
 use crate::{
     DEVICE, INIT,
-    allocator::allocate,
     constants::{
         EXECUTE_ONLY, KERNEL_PAGE_TABLE, MAXIMUM_PROCESS, PAGE_SIZE, READ_EXECUTE, READ_ONLY,
         READ_WRITE, ROOT_INODE, STACK_PAGES, STACK_START, Sv48, TRAMPOLINE,
         TRAMPOLINE_CODE_ADDRESS, TRAMPOLINE_OFFSET, TRAPFRAME, USER_MODE, WRITE_ONLY,
     },
-    error::{Error, Result},
+    error::Error,
     fs::sfs::{MemoryINode, read_inode},
+    global_state::GlobalState,
     scheduler::{Context, switch_to_scheduler_context},
     syscall::stdout,
-    traps::{TrapFrame, return_to_user_mode, set_up_supervisor_to_user_mode_transition, user_trap},
+    traps::{TrapFrame, set_up_supervisor_to_user_mode_transition, user_trap},
     vm::{self, drop_pages, kernel_stack_address, map, map_trampoline},
 };
 use alloc::{
@@ -23,18 +23,16 @@ use alloc::{
     sync::{Arc, Weak},
     vec::Vec,
 };
+use anyhow::{Result, bail};
 use core::{
-    arch::global_asm,
+    arch::{asm, global_asm},
     cell::LazyCell,
+    fmt::Debug,
     mem::{self, transmute},
     ptr::{self, null_mut, write_volatile},
 };
 use elf::{ElfBytes, endian::NativeEndian};
-
-pub static mut PROCESSES: LazyCell<[Process; MAXIMUM_PROCESS]> =
-    LazyCell::new(|| core::array::from_fn(|i| Process::default(i)));
-
-pub static mut CURRENT_PROCESS: Option<&'static mut Process> = None;
+use sync::{Lock, Mutex, MutexGuard};
 
 #[derive(Clone)]
 pub enum ProcessState {
@@ -54,31 +52,38 @@ pub enum ProcessState {
     },
 }
 
-pub struct Process<'a> {
+pub struct Process {
     pub id: usize,
-    pub name: String,
+    pub name: Box<str>,
 
     /// CAUTION: Holds the bottom of the stack
     kernel_stack: usize,
-    pub state: ProcessState,
+    pub process_state: ProcessState,
     pub context: Context,
-    parent: Option<&'a Process<'a>>,
-    pub children: Option<Vec<&'a Process<'a>>>,
+    parent: Option<Weak<Process>>,
+    pub children: Option<Arc<Mutex<Process>>>,
     pub page_table: usize,
     pub code: usize,
     pub trapframe: *mut TrapFrame,
     pub fds: Vec<usize>,
     pub size: usize,
     pub argv_addr: Vec<usize>,
+    pub global_state: &'static GlobalState,
 }
 
-impl<'a> Process<'a> {
+impl Debug for Process {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(&format!("Process: {}", self.id))
+    }
+}
+
+impl Process {
     pub fn default(id: usize) -> Self {
         Process {
             id,
             name: "".into(),
             kernel_stack: 0,
-            state: ProcessState::NotUsed,
+            process_state: ProcessState::NotUsed,
             context: Context::default(),
             parent: None,
             children: None,
@@ -88,144 +93,136 @@ impl<'a> Process<'a> {
             fds: Vec::new(),
             size: 0,
             argv_addr: Vec::new(),
+            global_state: GlobalState::get(),
         }
     }
 
-    pub fn clone(&'static mut self) -> Result<&'a mut Self> {
-        let process = assign_process()?;
-        process.context = self.context.clone();
+    // pub fn clone(&'static mut self) -> Result<Arc<Spinlock<Process>>> {
+    //     let process = assign_process(self.global_state)?;
 
-        process.fds = self.fds.clone();
-        process.kernel_stack = kernel_stack_address(process.id);
-        process.context.sp = process.kernel_stack + PAGE_SIZE;
-        process.context.ra = prepare_first_time_execution as usize;
-        process.size = self.size;
+    //     {
+    //         let mut process = process.lock();
 
-        unsafe {
-            *process.trapframe = (*self.trapframe).clone();
-            (*process.trapframe).a0 = 0;
-            (*self.trapframe).a0 = process.id;
+    //         process.context = self.context.clone();
 
-            (*process.trapframe).page_table = process.page_table;
-            (*process.trapframe).kernel_stack = process.kernel_stack;
-            (*process.trapframe).satp = Sv48 | ((*process.trapframe).page_table >> 12);
-        }
+    //         process.fds = self.fds.clone();
+    //         process.kernel_stack = kernel_stack_address(process.id);
+    //         process.context.sp = process.kernel_stack + PAGE_SIZE;
+    //         process.context.ra = prepare_first_time_execution as usize;
+    //         process.size = self.size;
 
-        map(
-            process.page_table,
-            TRAPFRAME,
-            process.trapframe.addr(),
-            PAGE_SIZE,
-            READ_WRITE,
-        )?;
+    //         unsafe {
+    //             *process.trapframe = (*self.trapframe).clone();
+    //             (*process.trapframe).a0 = 0;
+    //             (*self.trapframe).a0 = process.id;
 
-        process.parent = Some(&*self);
+    //             (*process.trapframe).page_table = process.page_table;
+    //             (*process.trapframe).kernel_stack = process.kernel_stack;
+    //             (*process.trapframe).satp = Sv48 | ((*process.trapframe).page_table >> 12);
+    //         }
 
-        process.name = self.name.clone();
+    //         map(
+    //             self.global_state,
+    //             process.page_table,
+    //             TRAPFRAME,
+    //             process.trapframe.addr(),
+    //             PAGE_SIZE,
+    //             READ_WRITE,
+    //         )?;
 
-        if let ProcessState::Running { cwd } = &self.state {
-            process.state = ProcessState::Ready { cwd: cwd.clone() };
-        }
+    //         process.parent = Some();
 
-        vm::copy(self.page_table, process.page_table, self.size)?;
+    //         process.name = self.name.clone();
 
-        map_trampoline(
-            process.page_table,
-            TRAMPOLINE,
-            unsafe { TRAMPOLINE_CODE_ADDRESS },
-            PAGE_SIZE,
-            READ_EXECUTE,
-        )?;
+    //         if let ProcessState::Running { cwd } = &self.process_state {
+    //             process.process_state = ProcessState::Ready { cwd: cwd.clone() };
+    //         }
 
-        Ok(process)
-    }
+    //         vm::copy(
+    //             self.global_state,
+    //             self.page_table,
+    //             process.page_table,
+    //             self.size,
+    //         )?;
 
-    /// Returns a new page table with stack, trapframe and trampoline mapped. If successful,
-    /// the caller can proceed to map code pages, swap the old page table with the one returned by this
-    /// function and drop the old page table freeing any associated pages.
-    pub fn prepare_for_execve(&mut self) -> Result<usize> {
-        let trapframe = allocate(1)?;
-        let page_table = allocate(1)?;
-
-        self.trapframe = trapframe as *mut TrapFrame;
-
-        unsafe {
-            write_volatile(self.trapframe, TrapFrame::default());
-
-            (*self.trapframe).user_trap_address = user_trap as usize;
-            (*self.trapframe).page_table = page_table;
-            (*self.trapframe).satp = Sv48 | (page_table >> 12);
-        }
-
-        Ok(page_table)
-    }
-
-    /// Frees all pages in the page table, the pages of page table entries and the page table itself.
-    /// The old page table is replaced with the new one and the kernel stack is zeroed. The function
-    /// assumes that the new page table is valid as an invalid page table breaks the process's state,
-    /// preventing it from returning to the instruction after environment call to the kernel.
-    pub fn free_for_execve(&mut self, new_page_table: usize, old_heap_end: usize) {
-        let old_page_table = self.page_table;
-        self.page_table = new_page_table;
-
-        drop_pages(old_page_table, old_heap_end)
-            .map_err(|e| panic!("WHILE FREEING FOR EXECVE: {}", e));
-
-        unsafe {
-            ptr::write_bytes(kernel_stack_address(self.id) as *mut u8, 0, PAGE_SIZE);
-        }
-    }
-
-    pub fn spawn(&'static self) -> Result<&'static mut Self> {
-        let process = assign_process()?;
-
-        process.parent = Some(&self);
-        Ok(process)
-    }
+    //         map_trampoline(
+    //             self.global_state,
+    //             process.page_table,
+    //             TRAMPOLINE,
+    //             unsafe { TRAMPOLINE_CODE_ADDRESS },
+    //             PAGE_SIZE,
+    //             READ_EXECUTE,
+    //         )?;
+    //     }
+    //     Ok(process)
+    // }
 }
 
 pub fn yield_cpu() {
-    let process = unsafe {
-        &mut **CURRENT_PROCESS
-            .as_mut()
-            .expect("YIELD FAILED - NO CURRENT PROCESS")
-    };
+    let state = GlobalState::get();
 
-    if let ProcessState::Running { cwd } = &process.state {
-        process.state = ProcessState::Ready { cwd: cwd.clone() }
+    let locked_process = state
+        .get_current_process()
+        .expect("YIELD FAILED - NO CURRENT PROCESS");
+
+    let mut process = locked_process.lock();
+    if let ProcessState::Running { cwd } = &process.process_state {
+        process.process_state = ProcessState::Ready { cwd: cwd.clone() }
     }
+    drop(process);
     switch_to_scheduler_context();
 }
 
-pub fn assign_process() -> Result<&'static mut Process<'static>> {
-    let page_table = allocate(1)?;
-    let trapframe = allocate(1)? as *mut TrapFrame;
+pub fn are_interrupts_enabled() -> bool {
+    unsafe {
+        let sstatus: usize;
+        asm!("csrr {}, sstatus", out(reg) sstatus);
+        (sstatus & (1 << 1)) != 0
+    }
+}
+pub fn assign_process(state: &GlobalState) -> Result<Arc<Mutex<Process>>> {
+    static PID: spin::Mutex<usize> = spin::Mutex::new(0);
 
-    for process in unsafe { &mut *PROCESSES } {
-        if let ProcessState::NotUsed = process.state {
-            process.state = ProcessState::Ready {
-                cwd: read_inode(ROOT_INODE, &DEVICE),
-            };
-            process.page_table = page_table;
+    let page_table = state.allocate(PAGE_SIZE).unwrap();
+    let trapframe = state.allocate(PAGE_SIZE).unwrap() as *mut TrapFrame;
 
-            process.trapframe = trapframe;
+    let mut pid = PID.lock();
+    *pid += 1;
 
-            unsafe {
-                *trapframe = TrapFrame::default();
-                (*trapframe).page_table = page_table;
-                (*trapframe).satp = Sv48 | page_table >> 12;
-                (*trapframe).kernel_page_table = Sv48 | (KERNEL_PAGE_TABLE >> 12);
-                (*trapframe).user_trap_address = user_trap as usize;
-            }
+    let locked_process = Arc::new(Mutex::new(
+        Process::default(*pid - 1),
+        1,
+        || 0,
+        riscv::interrupt::supervisor::enable,
+        riscv::interrupt::supervisor::disable,
+        are_interrupts_enabled,
+    ));
+    state.add_process(*pid, locked_process.clone());
 
-            return Ok(process);
-        }
+    let mut process = locked_process.lock();
+
+    process.process_state = ProcessState::Ready {
+        cwd: read_inode(ROOT_INODE, &DEVICE),
+    };
+    process.page_table = page_table;
+
+    process.trapframe = trapframe;
+
+    unsafe {
+        *trapframe = TrapFrame::default();
+        (*trapframe).page_table = page_table;
+        (*trapframe).satp = Sv48 | page_table >> 12;
+        (*trapframe).kernel_page_table = Sv48 | (KERNEL_PAGE_TABLE >> 12);
+        (*trapframe).user_trap_address = user_trap as usize;
     }
 
-    Err(Error::NoUnusedProcess)
+    drop(process);
+
+    return Ok(locked_process.clone());
 }
 
 pub fn map_code_pages(
+    state: &GlobalState,
     page_table: usize,
     code_pa: usize,
     code_va: usize,
@@ -238,6 +235,7 @@ pub fn map_code_pages(
         panic!("PROCESS CREATION FAILED - CODE SEGMENT CANNOT BE MAPPED TO TRAPFRAME ADDRESS");
     }
     map(
+        state,
         page_table,
         code_va,
         code_pa,
@@ -247,14 +245,20 @@ pub fn map_code_pages(
     .expect("PROCESS CREATION FAILED - ERROR WHILE MAPPING CODE PAGES");
 }
 
-pub fn map_other_pages(page_table: usize, final_code: usize, process: &mut Process) -> Result<()> {
+pub fn map_other_pages(
+    state: &GlobalState,
+    page_table: usize,
+    final_code: usize,
+    process: &mut MutexGuard<Process>,
+) -> Result<()> {
     if (TRAPFRAME - final_code) < (14 * PAGE_SIZE) {
         panic!("PROCESS CREATION FAILED - NOT ENOUGH SPACE FOR STACK AND HEAP");
     }
 
-    let stack = allocate(STACK_PAGES)?;
+    let stack = state.allocate(STACK_PAGES * PAGE_SIZE).unwrap();
 
     map(
+        state,
         page_table,
         STACK_START,
         stack,
@@ -265,6 +269,7 @@ pub fn map_other_pages(page_table: usize, final_code: usize, process: &mut Proce
     process.kernel_stack = kernel_stack_address(process.id);
 
     map_trampoline(
+        state,
         page_table,
         TRAMPOLINE,
         unsafe { TRAMPOLINE_CODE_ADDRESS },
@@ -275,6 +280,7 @@ pub fn map_other_pages(page_table: usize, final_code: usize, process: &mut Proce
     let trapframe = process.trapframe;
 
     map(
+        state,
         page_table,
         TRAPFRAME,
         trapframe.addr(),
@@ -291,11 +297,12 @@ pub fn map_other_pages(page_table: usize, final_code: usize, process: &mut Proce
     Ok(())
 }
 
-pub fn start_init() {
+pub fn start_init(state: &GlobalState) {
     let mut page = 0;
     let mut max_code_page_end_va = 0;
 
-    let process = assign_process().expect("INIT FAILED - FAILED TO ASSIGN PROCESS");
+    let process = assign_process(state).expect("INIT FAILED - FAILED TO ASSIGN PROCESS");
+    let mut process = process.lock();
     process.name = "init".into();
 
     let elf_data: ElfBytes<NativeEndian> =
@@ -316,7 +323,7 @@ pub fn start_init() {
             continue;
         }
 
-        page = allocate(num_pages).expect("INIT FAILED - FAILED TO ALLOCATE PAGE FOR CODE");
+        page = state.allocate(num_pages * PAGE_SIZE).unwrap();
 
         let offset = header.p_offset as usize;
 
@@ -343,7 +350,7 @@ pub fn start_init() {
 
         let loadable = &INIT[offset..offset + file_size];
 
-        map_code_pages(process.page_table, page, va, num_pages, permissions);
+        map_code_pages(state, process.page_table, page, va, num_pages, permissions);
         process.size += num_pages * PAGE_SIZE;
 
         unsafe {
@@ -355,8 +362,13 @@ pub fn start_init() {
         panic!("PANIC: INIT FAILED - ELF CONTAINS NO LOADABLE SEGMENT");
     }
 
-    map_other_pages(process.page_table, max_code_page_end_va, process)
-        .expect("INIT FAILED - ERROR WHILE MAPPING PAGES");
+    map_other_pages(
+        state,
+        process.page_table,
+        max_code_page_end_va,
+        &mut process,
+    )
+    .expect("INIT FAILED - ERROR WHILE MAPPING PAGES");
 
     let trapframe = process.trapframe;
 
@@ -374,14 +386,15 @@ pub fn start_init() {
 
 /// This function is called when a process has to be executed for the first time.
 pub fn prepare_first_time_execution() {
-    let process = unsafe {
-        &mut **CURRENT_PROCESS
-            .as_mut()
-            .expect("INIT FAILED - NO CURRENT PROCESS IN FIRST TIME EXECUTION")
-    };
+    let state = GlobalState::get();
 
-    let trapframe = process.trapframe;
+    let locked_process = state.get_current_process().expect("NO CURRENT PROCESS");
+    let trapframe;
 
+    let process = locked_process.lock();
+
+    trapframe = process.trapframe;
+    drop(process);
     set_up_supervisor_to_user_mode_transition()
         .expect("INIT FAILED - CONTEXT NONE WHILE RETURNING TO USER MODE");
 
@@ -391,11 +404,11 @@ pub fn prepare_first_time_execution() {
     }
 }
 
-impl<'a> Process<'a> {
+impl Process {
     pub fn sleep(&mut self, sleep_on: usize) {
-        match &self.state {
+        match &self.process_state {
             ProcessState::Running { cwd } | ProcessState::Ready { cwd } => {
-                self.state = ProcessState::Sleeping {
+                self.process_state = ProcessState::Sleeping {
                     cwd: cwd.clone(),
                     sleep_on,
                 }
@@ -408,11 +421,10 @@ impl<'a> Process<'a> {
 }
 
 pub fn wake_up(sleep_on_arg: usize) {
-    for process in unsafe { &mut *PROCESSES } {
-        if let ProcessState::Sleeping { cwd, sleep_on } = &process.state
-            && sleep_on_arg == *sleep_on
-        {
-            process.state = ProcessState::Ready { cwd: cwd.clone() };
-        }
+    let state = GlobalState::get();
+    if let Some((pid, cwd)) = state.find_sleeping_process(sleep_on_arg) {
+        let process = state.get_process(pid).unwrap();
+        let mut process = process.lock();
+        process.process_state = ProcessState::Ready { cwd }
     }
 }

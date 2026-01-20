@@ -12,18 +12,20 @@ use alloc::{
     string::{String, ToString},
     vec::Vec,
 };
+use anyhow::{Result, bail};
+use sync::Lock;
 
 use crate::{
     DEVICE,
     constants::ROOT_INODE,
-    drivers::uart::console_write,
-    error::{Error, Result},
+    error::Error,
     fs::sfs::{
         DirectoryEntry, DiskINode, InodeEntry, MemoryINode, allocate_inode, read_inode,
         read_inode_data, write_inode, write_inode_data,
     },
+    global_state::GlobalState,
     pipe::Pipe,
-    process::{CURRENT_PROCESS, ProcessState},
+    process::ProcessState,
 };
 
 pub const STDIN: usize = 0;
@@ -109,7 +111,7 @@ pub fn next_path_element(path: &str) -> (String, String) {
 /// `directory_search(home_inode, "bar")`, where `home_inode` is the inode of the file `home`.
 pub fn search_in_directory(inode: &Rc<MemoryINode>, name: &str) -> Result<Rc<MemoryINode>> {
     if inode.entry.get() != InodeEntry::Directory {
-        return Err(Error::NotADirectory { name: name.into() });
+        bail!(Error::NotADirectory { name: name.into() });
     } else {
         for i in 0..inode.size.get() / size_of::<DirectoryEntry>() {
             let bytes = &read_inode_data(
@@ -138,7 +140,7 @@ pub fn search_in_directory(inode: &Rc<MemoryINode>, name: &str) -> Result<Rc<Mem
         }
     }
 
-    Err(Error::NoSuchEntryInDirectory {
+    bail!(Error::NoSuchEntryInDirectory {
         name: name.to_string(),
     })
 }
@@ -146,6 +148,8 @@ pub fn search_in_directory(inode: &Rc<MemoryINode>, name: &str) -> Result<Rc<Mem
 /// Traverses a path and returns the inode of the last component.
 /// For example, if the path is `/home/bar`, returns the inode of `bar`
 pub fn traverse_path(path: &str, parent: bool) -> Result<Rc<MemoryINode>> {
+    let state = GlobalState::get();
+
     let mut inode: Rc<MemoryINode>;
 
     if path == "/" {
@@ -155,8 +159,10 @@ pub fn traverse_path(path: &str, parent: bool) -> Result<Rc<MemoryINode>> {
     if path.chars().collect::<Vec<char>>()[0] == '/' {
         inode = read_inode(ROOT_INODE, &DEVICE);
     } else {
-        inode = if let Some(process) = unsafe { CURRENT_PROCESS.as_ref() } {
-            match &process.state {
+        inode = if let Some(process) = state.get_current_process() {
+            let process = process.lock();
+
+            match &process.process_state {
                 ProcessState::Ready { cwd }
                 | ProcessState::Running { cwd }
                 | ProcessState::Sleeping { cwd, sleep_on: _ } => cwd.clone(),
@@ -190,14 +196,21 @@ pub fn traverse_path(path: &str, parent: bool) -> Result<Rc<MemoryINode>> {
 pub fn exists(path: &str) -> Result<bool> {
     match traverse_path(path, false) {
         Ok(_) => Ok(true),
-        Err(e) if matches!(e, Error::NoSuchEntryInDirectory { name: _ }) => Ok(false),
+        Err(e)
+            if matches!(
+                e.downcast_ref().unwrap(),
+                Error::NoSuchEntryInDirectory { name: _ }
+            ) =>
+        {
+            Ok(false)
+        }
         Err(e) => Err(e),
     }
 }
 
 pub fn create_file(path: &str, kind: InodeEntry) -> Result<NonZeroUsize> {
     if exists(path)? {
-        return Err(Error::FileAlreadyExists {
+        bail!(Error::FileAlreadyExists {
             path: path.to_string(),
         });
     }
@@ -206,7 +219,7 @@ pub fn create_file(path: &str, kind: InodeEntry) -> Result<NonZeroUsize> {
     let parent = read_inode(parent_inode.inum, &DEVICE);
 
     if parent.entry.get() != InodeEntry::Directory {
-        return Err(Error::NotADirectory {
+        bail!(Error::NotADirectory {
             name: format!("One of the parents not a directory {:?}", path),
         });
     }
@@ -249,8 +262,10 @@ pub fn open(
     truncate: bool,
     append: bool,
 ) -> Result<usize> {
+    let state = GlobalState::get();
+
     if exists(path)? & create & excl {
-        return Err(Error::FileAlreadyExists {
+        bail!(Error::FileAlreadyExists {
             path: path.to_string(),
         });
     }
@@ -258,7 +273,7 @@ pub fn open(
     let inode = match traverse_path(path, false) {
         Ok(inode) => inode,
         Err(e) => {
-            if let Error::NoSuchEntryInDirectory { name: _ } = e
+            if let Error::NoSuchEntryInDirectory { name: _ } = e.downcast_ref().unwrap()
                 && create
             {
                 read_inode(create_file(path, InodeEntry::File)?, &DEVICE)
@@ -282,7 +297,7 @@ pub fn open(
         },
         InodeEntry::SymLink => todo!(),
         InodeEntry::None => {
-            return Err(Error::FreeInode {
+            bail!(Error::FreeInode {
                 inode: DiskINode::from(inode.as_ref()),
             });
         }
@@ -290,7 +305,8 @@ pub fn open(
 
     let file = allocate_file();
 
-    if let Some(current_process) = unsafe { &mut CURRENT_PROCESS } {
+    if let Some(current_process) = state.get_current_process() {
+        let mut current_process = current_process.lock();
         current_process.fds.push(*file.fd.borrow());
     }
     *file.file_type.borrow_mut() = file_type;

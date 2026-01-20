@@ -8,6 +8,7 @@ pub static mut KERNEL_END: usize = 0;
 pub static mut END_OF_KERNEL_TEXT: usize = 0; // re-assign later in main::_start
 pub static mut TRAMPOLINE_CODE_ADDRESS: usize = 0; // // re-assign later in main::_start
 pub static mut KERNEL_START: usize = 0;
+pub const KERNEL_HEAP_SIZE: usize = 131072000;
 
 pub const STACK_START: usize = TRAMPOLINE - 8 * PAGE_SIZE;
 

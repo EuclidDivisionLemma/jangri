@@ -1,15 +1,18 @@
+use anyhow::Result;
+use anyhow::bail;
 use core::cell::Cell;
 use core::cell::RefCell;
 use ringbuffer::RingBuffer;
+use sync::Lock;
 
 use crate::error::Error;
-use crate::error::Result;
+use crate::global_state::GlobalState;
 use alloc::vec;
 use alloc::{rc::Rc, vec::Vec};
 use ringbuffer::AllocRingBuffer;
 
 use crate::file::{File, FileType};
-use crate::process::{self, CURRENT_PROCESS};
+use crate::process::{self};
 
 // use crate::{
 //     error::{Error, Result},
@@ -49,12 +52,14 @@ pub fn allocate_pipe(reader: &Rc<File>, writer: &Rc<File>) -> Rc<Pipe> {
 
 impl Pipe {
     pub fn write(&self, buffer: &[u8]) -> Result<()> {
+        let state = GlobalState::get();
+
         if self.write_end_open.get() == false {
-            return Err(Error::PipeWriterClosed);
+            bail!(Error::PipeWriterClosed);
         }
 
         if self.read_end_open.get() == false {
-            return Err(Error::PipeReaderClosed);
+            bail!(Error::PipeReaderClosed);
         }
 
         for i in 0..buffer.len() {
@@ -63,8 +68,10 @@ impl Pipe {
             {
                 riscv::interrupt::supervisor::disable();
 
-                if let Some(process) = unsafe { CURRENT_PROCESS.as_mut() } {
+                if let Some(process) = state.get_current_process() {
+                    let mut process = process.lock();
                     process::wake_up((&raw const self.read_offset).addr());
+
                     process.sleep((&raw const self.write_offset).addr());
                 }
 

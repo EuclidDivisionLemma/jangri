@@ -15,6 +15,7 @@ use crate::{
         FILE_NAME_SIZE, InodeEntry, flush_data_blocks, flush_inodes, read_inode, read_inode_data,
         write_inode_data,
     },
+    global_state::GlobalState,
     traps::TrapFrame,
     vm::translate_virtual_address,
 };
@@ -73,7 +74,9 @@ impl Neg for Error {
 }
 
 pub fn open(trapframe: &TrapFrame) -> usize {
-    let ptr = translate_virtual_address(trapframe.page_table, trapframe.a0)
+    let state = GlobalState::get();
+
+    let ptr = translate_virtual_address(state, trapframe.page_table, trapframe.a0)
         .unwrap_or_else(|e| panic!("OPEN FAILED - {}", e)) as *const u8;
     let flag = trapframe.a1;
 
@@ -143,7 +146,7 @@ pub fn open(trapframe: &TrapFrame) -> usize {
             append,
         ) {
             Ok(fd) => fd,
-            Err(e) => match e {
+            Err(e) => match e.downcast_ref().unwrap() {
                 crate::error::Error::NoSuchEntryInDirectory { name: _ }
                 | crate::error::Error::FileDoesNotExist { path: _ }
                     if !create =>
@@ -168,12 +171,14 @@ pub fn open(trapframe: &TrapFrame) -> usize {
 }
 
 pub fn write(trapframe: &TrapFrame) -> usize {
+    let state = GlobalState::get();
+
     let fd = trapframe.a0;
     let num_bytes = trapframe.a2;
 
     let buffer = unsafe {
         slice::from_raw_parts(
-            translate_virtual_address(trapframe.page_table, trapframe.a1)
+            translate_virtual_address(state, trapframe.page_table, trapframe.a1)
                 .unwrap_or_else(|e| panic!("WRITE FAILED - {}", e)) as *mut u8,
             num_bytes,
         )
@@ -197,8 +202,10 @@ pub fn write(trapframe: &TrapFrame) -> usize {
                 match &*file.file_type.borrow() {
                     FileType::Pipe(pipe) => {
                         if let Err(e) = pipe.write(&buffer) {
-                            if e == crate::error::Error::PipeReaderClosed
-                                || e == crate::error::Error::PipeWriterClosed
+                            if *e.downcast_ref::<crate::error::Error>().unwrap()
+                                == crate::error::Error::PipeReaderClosed
+                                || *e.downcast_ref::<crate::error::Error>().unwrap()
+                                    == crate::error::Error::PipeWriterClosed
                             {
                                 return -Error::EPIPE as usize;
                             } else {
@@ -226,7 +233,7 @@ pub fn write(trapframe: &TrapFrame) -> usize {
                                 buffer[..num_bytes].to_vec(),
                                 &DEVICE,
                             ) {
-                                match e {
+                                match e.downcast_ref().unwrap() {
                                     crate::error::Error::FileSizeOverflow => {
                                         return -Error::EOVERFLOW as usize;
                                     }
@@ -250,12 +257,14 @@ pub fn write(trapframe: &TrapFrame) -> usize {
 }
 
 pub fn read(trapframe: &TrapFrame) -> usize {
+    let state = GlobalState::get();
+
     let fd = trapframe.a0;
     let num_bytes = trapframe.a2;
 
     let buffer = unsafe {
         slice::from_raw_parts_mut(
-            translate_virtual_address(trapframe.page_table, trapframe.a1)
+            translate_virtual_address(state, trapframe.page_table, trapframe.a1)
                 .unwrap_or_else(|e| panic!("READ FAILED: {}", e)) as *mut u8,
             num_bytes,
         )
@@ -333,11 +342,17 @@ pub fn read(trapframe: &TrapFrame) -> usize {
 
                 let data = match read_inode_data(inode, *offset, num_bytes, true, &DEVICE) {
                     Ok(data) => data,
-                    Err(e) if e == crate::error::Error::ReadBeyondEOF => {
+                    Err(e)
+                        if matches!(
+                            e.downcast_ref().unwrap(),
+                            crate::error::Error::ReadBeyondEOF
+                        ) =>
+                    {
                         return -Error::EOVERFLOW as usize;
                     }
                     Err(e) => panic!("FILE READ - {:?}", e),
                 };
+
                 buffer.copy_from_slice(&data);
                 return data.len();
             }

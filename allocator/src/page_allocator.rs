@@ -1,5 +1,6 @@
 use core::{
     array::from_fn,
+    fmt::Debug,
     ptr::{NonNull, write_bytes, write_volatile},
 };
 
@@ -18,13 +19,19 @@ const MIN_ORDER: usize = 12;
 
 const BUCKET_COUNT: usize = MAX_ORDER - MIN_ORDER;
 
-pub struct PageAllocator<T: Fn(usize) -> Result<usize>> {
+pub struct PageAllocator {
     buckets: [LinkedList; BUCKET_COUNT],
     memory_start: usize,
     memory_end: usize,
     current_size: usize,
     current_start: usize,
-    evict: T,
+    evict: &'static dyn Fn(usize) -> Result<usize>,
+}
+
+impl Debug for PageAllocator {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("Global Page Allocator: PageAllocator")
+    }
 }
 
 fn index_from_order(order: usize) -> usize {
@@ -38,8 +45,8 @@ fn order_from_size(size: usize) -> usize {
     size.next_power_of_two().ilog2() as usize
 }
 
-impl<T: Fn(usize) -> Result<usize>> PageAllocator<T> {
-    pub fn new(evict: T, start: usize, end: usize) -> Self {
+impl PageAllocator {
+    pub fn new(evict: &'static dyn Fn(usize) -> Result<usize>, start: usize, end: usize) -> Self {
         Self {
             buckets: from_fn(|_| LinkedList { head: None }),
             memory_start: start,

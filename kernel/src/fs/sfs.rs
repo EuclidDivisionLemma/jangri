@@ -2,8 +2,9 @@
 use crate::DEVICE;
 use crate::drivers::Storage;
 use crate::error::Error;
-use crate::error::Result;
 use alloc::vec;
+use anyhow::Result;
+use anyhow::bail;
 use core::cmp::max;
 use core::cmp::min;
 use core::fmt::Debug;
@@ -183,7 +184,7 @@ pub fn allocate_inode(device: &dyn Storage) -> Result<NonZeroUsize> {
             let inum = i * 8 + j + 1;
 
             if inum > INODES {
-                return Err(Error::NoFreeINode);
+                bail!(Error::NoFreeINode);
             }
 
             let old = bitmaps[i];
@@ -192,12 +193,12 @@ pub fn allocate_inode(device: &dyn Storage) -> Result<NonZeroUsize> {
                 bitmaps[i] = new;
                 device.write_blocks(super_block.bitmap_start, bitmap_blocks, &bitmaps);
 
-                return NonZeroUsize::new(inum).ok_or(Error::InumZero);
+                return NonZeroUsize::new(inum).ok_or(Error::InumZero.into());
             }
         }
     }
 
-    Err(Error::NoFreeINode)
+    bail!(Error::NoFreeINode)
 }
 
 /// Calculates and returns the location of inode on device. The first value of the tuple returned
@@ -374,7 +375,7 @@ pub fn allocate_data_block(device: &dyn Storage) -> Result<usize> {
         }
     }
 
-    Err(Error::NoFreeDataBlock)
+    bail!(Error::NoFreeDataBlock)
 }
 
 /// Converts a logical block in file to physical block number on the device.
@@ -397,7 +398,7 @@ pub fn logical_block_to_physical_block(
                     flush_inodes(device)?;
                     Ok(block)
                 } else {
-                    Err(Error::NoBlockOnDevice)
+                    bail!(Error::NoBlockOnDevice)
                 }
             }
 
@@ -449,7 +450,7 @@ pub fn logical_block_to_physical_block(
 
                 return Ok(data_block);
             }
-            return Err(Error::NoBlockOnDevice);
+            return bail!(Error::NoBlockOnDevice);
         }
 
         let mut blocks = if let Some(block) = unsafe { DATA_CACHE.range(..=indirect).next_back() }
@@ -490,7 +491,7 @@ pub fn logical_block_to_physical_block(
                 return Ok(new_block);
             }
         }
-        Err(Error::NoBlockOnDevice)
+        bail!(Error::NoBlockOnDevice)
     }
 }
 
@@ -503,7 +504,7 @@ pub fn read_inode_data(
 ) -> Result<Vec<u8>> {
     if byte_offset >= inode.size.get() {
         if !read_beyond_eof_intended {
-            return Err(Error::ReadBeyondEOF);
+            return bail!(Error::ReadBeyondEOF);
         }
 
         // `lseek` accepts offsets greater than file size,
@@ -577,7 +578,7 @@ pub fn write_inode_data(
     device: &dyn Storage,
 ) -> Result<()> {
     if inode.size.get() == 0 && byte_offset != 0 {
-        return Err(Error::ByteOffsetNotZeroWhenInodeSizeIsZero);
+        bail!(Error::ByteOffsetNotZeroWhenInodeSizeIsZero);
     }
 
     let mut logical_block = byte_offset / BLOCK_SIZE;
@@ -585,7 +586,7 @@ pub fn write_inode_data(
 
     let num_bytes = if inode.size.get() != 0 {
         if buffer.len() > MAXIMUM_FILE_SIZE - byte_offset {
-            return Err(Error::FileSizeOverflow);
+            bail!(Error::FileSizeOverflow);
         }
         // if writing the buffer does not cause the file size to increase
         // beyond the maximum file size,  write the entire buffer
@@ -594,7 +595,7 @@ pub fn write_inode_data(
         }
     } else {
         if buffer.len() > MAXIMUM_FILE_SIZE {
-            return Err(Error::FileSizeOverflow);
+            bail!(Error::FileSizeOverflow);
         } else {
             buffer.len()
         }

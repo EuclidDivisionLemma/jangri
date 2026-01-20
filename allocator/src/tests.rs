@@ -131,7 +131,7 @@ fn test_linked_list() {
 fn test_allocator() {
     let heap = unsafe { alloc(Layout::from_size_align(256 * PAGE_SIZE, PAGE_SIZE).unwrap()) };
     let mut allocator = PageAllocator::new(
-        |_| bail!("Not Implemented"),
+        &|_| bail!("Not Implemented"),
         heap.addr(),
         heap.addr() + 256 * PAGE_SIZE,
     );

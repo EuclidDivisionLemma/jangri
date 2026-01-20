@@ -5,6 +5,7 @@ use core::{
 };
 
 use alloc::format;
+use anyhow::Result;
 use riscv::{
     interrupt::{
         Trap,
@@ -12,13 +13,15 @@ use riscv::{
     },
     register::{scause::Scause, stvec::Stvec},
 };
+use sync::Lock;
 
 use crate::{
     constants::{TIME_SLICE, TRAMPOLINE, TRAMPOLINE_OFFSET, TRAPFRAME, UART_ID},
     drivers::uart::{self},
-    error::{Error, Result},
+    error::Error,
+    global_state::GlobalState,
     plic,
-    process::{CURRENT_PROCESS, wake_up, yield_cpu},
+    process::{wake_up, yield_cpu},
     syscall::{self, stdout},
 };
 
@@ -191,8 +194,15 @@ pub fn user_trap() {
     let cause = riscv::register::scause::read();
     let sepc = riscv::register::sepc::read();
 
-    if let Some(process) = unsafe { &mut crate::process::CURRENT_PROCESS } {
-        let trapframe = process.trapframe;
+    let state = GlobalState::get();
+    let process = state.get_current_process();
+
+    if let Some(locked_process) = process {
+        let trapframe;
+
+        let process = locked_process.lock();
+        trapframe = process.trapframe;
+        drop(process);
 
         unsafe {
             (*trapframe).sepc = sepc;
@@ -208,7 +218,6 @@ pub fn user_trap() {
 
         unsafe {
             let return_to_user_mode_ptr: fn(usize) -> ! = transmute(TRAMPOLINE + TRAMPOLINE_OFFSET);
-            let trapframe = process.trapframe;
             return_to_user_mode_ptr(trapframe.addr());
         }
     } else {
@@ -230,7 +239,9 @@ pub fn set_up_supervisor_to_user_mode_transition() -> Result<()> {
     }
 
     unsafe {
-        let process = CURRENT_PROCESS.as_ref().unwrap();
+        let state = GlobalState::get();
+        let process = state.get_current_process().unwrap();
+        let process = process.lock();
         let trapframe = process.trapframe;
         riscv::register::sepc::write((*trapframe).sepc);
         riscv::register::sstatus::set_spp(riscv::register::sstatus::SPP::User);
@@ -261,7 +272,9 @@ pub fn handle_exceptions(cause: Scause) {
     if cause.cause() == Trap::Exception(Exception::UserEnvCall as usize) {
         syscall::handle();
     } else {
-        let current_process = unsafe { &mut **CURRENT_PROCESS.as_mut().unwrap() };
+        let state = GlobalState::get();
+        let process = state.get_current_process().unwrap();
+        let mut current_process = process.lock();
         stdout(&format!(
             "RUNNING PROCESS name = {}, pid = {}, sepc = {}, stval = {}\n{:?}\n",
             &current_process.name,
@@ -271,7 +284,7 @@ pub fn handle_exceptions(cause: Scause) {
             cause
         ));
         wake_up(current_process.id);
-        current_process.state = crate::process::ProcessState::Terminated {
+        current_process.process_state = crate::process::ProcessState::Terminated {
             return_value: Err(cause.bits()),
         };
     }

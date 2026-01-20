@@ -1,7 +1,12 @@
 [workspace]
-members = ["allocator","kernel"]
+members = ["allocator", "kernel", "sync"]
 resolver = "3"
 
 [workspace.dependencies]
 anyhow = {version = "1.0.100", default-features = false}
 allocator = {path = "./allocator"}
+spin = {version = "0.10.0"}
+dlmalloc = "0.2.12"
+thiserror = {version = "2.0.17", default-features = false}
+riscv = "0.15.0"
+sync = {path = "./sync"}

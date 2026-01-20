@@ -10,9 +10,10 @@ use alloc::{
     },
     vec::Vec,
 };
+use anyhow::{Result, bail};
 
 use {
-    crate::error::{Error, Result},
+    crate::error::Error,
     crate::sfs::{BLOCK_SIZE, DATA_CACHE, LRU_CACHE_CAPACITY},
 };
 
@@ -34,7 +35,7 @@ impl Interval {
                 needs_write,
             })
         } else {
-            Err(Error::IntervalsNotConsecutive)
+            bail!(Error::IntervalsNotConsecutive)
         }
     }
 }
