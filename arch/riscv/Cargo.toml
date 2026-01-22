@@ -1,0 +1,11 @@
+[package]
+name = "riscv_arch"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+hal.workspace = true
+riscv.workspace = true
+anyhow.workspace = true
+
+[profile.test]

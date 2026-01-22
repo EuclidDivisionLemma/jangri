@@ -51,6 +51,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f449e6c6c08c865631d4890cfacf252b3d396c9bcc83adb6623cdb02a8336c41"
 
 [[package]]
+name = "hal"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "thiserror",
+]
+
+[[package]]
 name = "jangri"
 version = "0.0.1"
 dependencies = [
@@ -58,8 +66,11 @@ dependencies = [
  "anyhow",
  "cc",
  "elf",
+ "hal",
+ "lock_api",
  "ringbuffer",
  "riscv",
+ "riscv_arch",
  "spin",
  "sync",
  "talc",
@@ -136,6 +147,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8188909339ccc0c68cfb5a04648313f09621e8b87dc03095454f1a11f6c5d436"
 
 [[package]]
+name = "riscv_arch"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "hal",
+ "riscv",
+]
+
+[[package]]
 name = "scopeguard"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -172,6 +192,8 @@ name = "sync"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "hal",
+ "lock_api",
  "riscv",
 ]
 

@@ -13,7 +13,7 @@ use riscv::{
     },
     register::{scause::Scause, stvec::Stvec},
 };
-use sync::Lock;
+use spin::Once;
 
 use crate::{
     constants::{TIME_SLICE, TRAMPOLINE, TRAMPOLINE_OFFSET, TRAPFRAME, UART_ID},
@@ -28,6 +28,17 @@ use crate::{
 unsafe extern "C" {
     pub safe fn handle_traps_from_supervisor_mode();
     pub safe fn return_to_user_mode(trapframe: usize);
+    pub safe fn handle_traps_from_user_mode();
+}
+
+static GLOBAL_STATE: Once<GlobalState> = Once::new();
+
+pub fn get_global_state() -> &'static GlobalState {
+    GLOBAL_STATE.get().unwrap()
+}
+
+pub fn initialise_global_state_for_trap_handlers(state: GlobalState) -> &'static GlobalState {
+    GLOBAL_STATE.call_once(|| state)
 }
 
 global_asm!(
@@ -194,7 +205,7 @@ pub fn user_trap() {
     let cause = riscv::register::scause::read();
     let sepc = riscv::register::sepc::read();
 
-    let state = GlobalState::get();
+    let state = get_global_state();
     let process = state.get_current_process();
 
     if let Some(locked_process) = process {
@@ -208,12 +219,12 @@ pub fn user_trap() {
             (*trapframe).sepc = sepc;
         }
         if cause.is_interrupt() {
-            handle_interrupts(cause);
+            handle_interrupts(state, cause);
         } else if cause.is_exception() {
-            handle_exceptions(cause);
+            handle_exceptions(state, cause);
         }
 
-        set_up_supervisor_to_user_mode_transition()
+        set_up_supervisor_to_user_mode_transition(state)
             .expect("TRAP ERROR - CONTEXT NONE WHILE RETURNING TO USER MODE");
 
         unsafe {
@@ -225,7 +236,7 @@ pub fn user_trap() {
     }
 }
 
-pub fn set_up_supervisor_to_user_mode_transition() -> Result<()> {
+pub fn set_up_supervisor_to_user_mode_transition(state: &GlobalState) -> Result<()> {
     // Disable interrupts because we are changing stvec to point to
     // `handle_traps_from_user_mode` and we don't want an interrupt
     // to be handled by it while we are still in supervisor mode
@@ -239,7 +250,6 @@ pub fn set_up_supervisor_to_user_mode_transition() -> Result<()> {
     }
 
     unsafe {
-        let state = GlobalState::get();
         let process = state.get_current_process().unwrap();
         let process = process.lock();
         let trapframe = process.trapframe;
@@ -251,10 +261,10 @@ pub fn set_up_supervisor_to_user_mode_transition() -> Result<()> {
     Ok(())
 }
 
-pub fn handle_interrupts(cause: Scause) {
+pub fn handle_interrupts(state: &GlobalState, cause: Scause) {
     if cause.cause() == Trap::Interrupt(Interrupt::SupervisorTimer as usize) {
         set_next_timer_interrupt(TIME_SLICE);
-        yield_cpu();
+        yield_cpu(state);
     } else if cause.cause() == Trap::Interrupt(Interrupt::SupervisorExternal as usize) {
         let id = plic::claim();
 
@@ -268,11 +278,10 @@ pub fn handle_interrupts(cause: Scause) {
     }
 }
 
-pub fn handle_exceptions(cause: Scause) {
+pub fn handle_exceptions(state: &GlobalState, cause: Scause) {
     if cause.cause() == Trap::Exception(Exception::UserEnvCall as usize) {
-        syscall::handle();
+        syscall::handle(state);
     } else {
-        let state = GlobalState::get();
         let process = state.get_current_process().unwrap();
         let mut current_process = process.lock();
         stdout(&format!(
@@ -283,7 +292,7 @@ pub fn handle_exceptions(cause: Scause) {
             riscv::register::stval::read(),
             cause
         ));
-        wake_up(current_process.id);
+        wake_up(state, current_process.id);
         current_process.process_state = crate::process::ProcessState::Terminated {
             return_value: Err(cause.bits()),
         };

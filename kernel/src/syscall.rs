@@ -5,7 +5,6 @@ use core::{
 };
 
 use alloc::{format, vec::Vec};
-use sync::Lock;
 
 use crate::{
     file::{self, FILES, allocate_file, exists, traverse_path},
@@ -25,7 +24,7 @@ pub mod fs;
 pub mod io;
 pub mod process;
 
-pub const SYSCALLS: [(Syscall, fn(&TrapFrame) -> usize); 11] = [
+pub const SYSCALLS: [(Syscall, fn(&GlobalState, &TrapFrame) -> usize); 11] = [
     (Syscall::Open, io::open),
     (Syscall::Read, io::read),
     (Syscall::Write, io::write),
@@ -69,10 +68,8 @@ pub fn stdout<'a>(text: &'a str) {
     }
 }
 
-pub fn handle() {
+pub fn handle(state: &GlobalState) {
     let syscall_no: usize;
-
-    let state = GlobalState::get();
 
     if let Some(locked_process) = state.get_current_process() {
         let trapframe;
@@ -94,7 +91,7 @@ pub fn handle() {
         for (no, handler) in SYSCALLS {
             if syscall_no == no as usize {
                 unsafe {
-                    let return_value = handler(&*trapframe);
+                    let return_value = handler(state, &*trapframe);
                     let process = locked_process.lock();
                     let trapframe = process.trapframe;
 
@@ -111,9 +108,7 @@ pub fn handle() {
     }
 }
 
-pub fn pipe(trapframe: &TrapFrame) -> usize {
-    let state = GlobalState::get();
-
+pub fn pipe(state: &GlobalState, trapframe: &TrapFrame) -> usize {
     let current_process = state.get_current_process().unwrap();
     let current_process = current_process.lock();
 
@@ -122,7 +117,7 @@ pub fn pipe(trapframe: &TrapFrame) -> usize {
     let writer = allocate_file();
     let reader = allocate_file();
 
-    let _ = allocate_pipe(&reader, &writer);
+    let _ = allocate_pipe(state, &reader, &writer);
 
     let fds = unsafe {
         &mut *slice_from_raw_parts_mut(
@@ -138,9 +133,7 @@ pub fn pipe(trapframe: &TrapFrame) -> usize {
     0
 }
 
-pub fn sbrk(trapframe: &TrapFrame) -> usize {
-    let state = GlobalState::get();
-
+pub fn sbrk(state: &GlobalState, trapframe: &TrapFrame) -> usize {
     enum Error {
         ENOMEM = 12,
     }
@@ -166,7 +159,7 @@ pub fn sbrk(trapframe: &TrapFrame) -> usize {
     }
 }
 
-pub fn dup2(trapframe: &TrapFrame) -> usize {
+pub fn dup2(_: &GlobalState, trapframe: &TrapFrame) -> usize {
     let fd1 = trapframe.a0;
     let fd2 = trapframe.a1;
 

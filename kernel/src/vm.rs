@@ -1,6 +1,5 @@
 use alloc::format;
 use anyhow::{Result, bail};
-use sync::Lock;
 
 use crate::{
     constants::{
@@ -57,58 +56,77 @@ pub fn initialise_kernel_page_table(state: &GlobalState) -> Result<()> {
         map_kernel_stack(state);
 
         // map UART registers
-        map(
-            state,
+        state.map(
             KERNEL_PAGE_TABLE,
             UART0,
             UART0,
             PAGE_SIZE,
-            READ_WRITE,
+            true,
+            true,
+            false,
+            false,
         )?;
 
         // map VIRIO MMIO Disk Registers
-        map(
-            state,
+        state.map(
             KERNEL_PAGE_TABLE,
             VIRTIO_MMIO_DISK,
             VIRTIO_MMIO_DISK,
             VIRTIO_MMIO_DISK_SIZE,
-            READ_WRITE,
+            true,
+            true,
+            false,
+            false,
         )?;
 
         // map PLIC Registers
-        map(state, KERNEL_PAGE_TABLE, PLIC, PLIC, PLIC_SIZE, READ_WRITE)?;
+        state.map(
+            KERNEL_PAGE_TABLE,
+            PLIC,
+            PLIC,
+            PLIC_SIZE,
+            true,
+            true,
+            false,
+            false,
+        )?;
 
         // map kernel code
-        map(
-            state,
+        state.map(
             KERNEL_PAGE_TABLE,
             KERNEL_START,
             KERNEL_START,
             END_OF_KERNEL_TEXT - KERNEL_START,
-            READ_EXECUTE,
+            true,
+            false,
+            true,
+            false,
         )?;
 
         // map kernel data and RAM
-        map(
-            state,
+        state.map(
             KERNEL_PAGE_TABLE,
             END_OF_KERNEL_TEXT,
             END_OF_KERNEL_TEXT,
             RAM_STOP - END_OF_KERNEL_TEXT,
-            READ_WRITE,
+            true,
+            true,
+            false,
+            false,
         )?;
 
         // The trampoline page is mapped at the highest virtual address
         // in both user and kernel page tables so that we can jump to
         // it in either mode.
-        map_trampoline(
-            state,
+        state.map(
             KERNEL_PAGE_TABLE,
             TRAMPOLINE,
             TRAMPOLINE_CODE_ADDRESS,
             PAGE_SIZE,
-            READ_EXECUTE,
+            true,
+            false,
+            true,
+            false,
         )?;
     }
 
@@ -263,29 +281,32 @@ pub fn get_page_table_entry_address(
 
 #[inline(always)]
 pub fn kernel_stack_address(pid: usize) -> usize {
-    TRAMPOLINE - 7 * (pid + 1) * PAGE_SIZE
+    TRAMPOLINE - 5 * (pid + 1) * PAGE_SIZE
 }
 
 pub fn map_kernel_stack(state: &GlobalState) {
     let mut physical_address: usize;
 
     for i in 0..MAXIMUM_PROCESS {
-        match state.allocate(6 * PAGE_SIZE) {
+        match state.allocate(4 * PAGE_SIZE) {
             Ok(v) => physical_address = v,
             Err(_) => {
                 panic!("ERROR - WHILE MAPPING KERNEL STACK - Page Fault: No Free Memory\n");
             }
         }
         unsafe {
-            map(
-                state,
-                KERNEL_PAGE_TABLE,
-                kernel_stack_address(i),
-                physical_address,
-                6 * PAGE_SIZE,
-                READ_WRITE,
-            )
-            .unwrap()
+            state
+                .map(
+                    KERNEL_PAGE_TABLE,
+                    kernel_stack_address(i),
+                    physical_address,
+                    4 * PAGE_SIZE,
+                    true,
+                    true,
+                    false,
+                    false,
+                )
+                .unwrap()
         }
     }
 }
@@ -363,7 +384,6 @@ pub fn allocate_heap(
                 .heap_end
                 .set(trapframe.heap_end.get() + num_pages * PAGE_SIZE);
 
-            let state = GlobalState::get();
             let process = state.get_current_process().unwrap();
             let mut current_process = process.lock();
 

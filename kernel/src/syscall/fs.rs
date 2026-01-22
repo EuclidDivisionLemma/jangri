@@ -1,5 +1,4 @@
 use alloc::{format, string::ToString};
-use sync::Lock;
 
 use crate::{
     file::create_file,
@@ -12,8 +11,7 @@ use crate::{
     file::traverse_path, syscall::io::Error, traps::TrapFrame, vm::translate_virtual_address,
 };
 
-pub fn chdir(trapframe: &TrapFrame) -> usize {
-    let state = GlobalState::get();
+pub fn chdir(state: &GlobalState, trapframe: &TrapFrame) -> usize {
     let process = state.get_current_process().unwrap();
     let mut current_process = process.lock();
 
@@ -26,7 +24,7 @@ pub fn chdir(trapframe: &TrapFrame) -> usize {
         .unwrap()
     };
 
-    let inode = match traverse_path(path, false) {
+    let inode = match traverse_path(state, path, false) {
         Ok(v) => v,
         Err(e)
             if matches!(
@@ -56,8 +54,7 @@ pub fn chdir(trapframe: &TrapFrame) -> usize {
     0
 }
 
-pub fn mkdir(trapframe: &TrapFrame) -> usize {
-    let state = GlobalState::get();
+pub fn mkdir(state: &GlobalState, trapframe: &TrapFrame) -> usize {
     let process = state.get_current_process().unwrap();
     let current_process = process.lock();
 
@@ -73,7 +70,7 @@ pub fn mkdir(trapframe: &TrapFrame) -> usize {
         .to_string()
     };
 
-    match create_file(&path, crate::fs::sfs::InodeEntry::Directory) {
+    match create_file(state, &path, crate::fs::sfs::InodeEntry::Directory) {
         Ok(_) => 0,
         Err(e)
             if matches!(

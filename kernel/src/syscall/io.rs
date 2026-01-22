@@ -73,9 +73,7 @@ impl Neg for Error {
     }
 }
 
-pub fn open(trapframe: &TrapFrame) -> usize {
-    let state = GlobalState::get();
-
+pub fn open(state: &GlobalState, trapframe: &TrapFrame) -> usize {
     let ptr = translate_virtual_address(state, trapframe.page_table, trapframe.a0)
         .unwrap_or_else(|e| panic!("OPEN FAILED - {}", e)) as *const u8;
     let flag = trapframe.a1;
@@ -137,6 +135,7 @@ pub fn open(trapframe: &TrapFrame) -> usize {
         }
 
         match file::open(
+            state,
             path,
             *file.readable.borrow(),
             *file.writeable.borrow(),
@@ -170,9 +169,7 @@ pub fn open(trapframe: &TrapFrame) -> usize {
     }
 }
 
-pub fn write(trapframe: &TrapFrame) -> usize {
-    let state = GlobalState::get();
-
+pub fn write(state: &GlobalState, trapframe: &TrapFrame) -> usize {
     let fd = trapframe.a0;
     let num_bytes = trapframe.a2;
 
@@ -256,9 +253,7 @@ pub fn write(trapframe: &TrapFrame) -> usize {
     }
 }
 
-pub fn read(trapframe: &TrapFrame) -> usize {
-    let state = GlobalState::get();
-
+pub fn read(state: &GlobalState, trapframe: &TrapFrame) -> usize {
     let fd = trapframe.a0;
     let num_bytes = trapframe.a2;
 
@@ -364,7 +359,7 @@ pub fn read(trapframe: &TrapFrame) -> usize {
     }
 }
 
-pub fn close(trapframe: &TrapFrame) -> usize {
+pub fn close(_: &GlobalState, trapframe: &TrapFrame) -> usize {
     let fd = trapframe.a0;
 
     match unsafe { FILES.remove(&fd) } {
@@ -389,7 +384,7 @@ pub fn close(trapframe: &TrapFrame) -> usize {
     0
 }
 
-pub fn lseek(trapframe: &TrapFrame) -> usize {
+pub fn lseek(_: &GlobalState, trapframe: &TrapFrame) -> usize {
     let fd = trapframe.a0;
     let new_offset = trapframe.a1 as isize;
 

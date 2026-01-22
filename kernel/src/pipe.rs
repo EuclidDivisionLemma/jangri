@@ -3,8 +3,8 @@ use anyhow::bail;
 use core::cell::Cell;
 use core::cell::RefCell;
 use ringbuffer::RingBuffer;
-use sync::Lock;
 
+use crate::ARCH;
 use crate::error::Error;
 use crate::global_state::GlobalState;
 use alloc::vec;
@@ -14,29 +14,29 @@ use ringbuffer::AllocRingBuffer;
 use crate::file::{File, FileType};
 use crate::process::{self};
 
-// use crate::{
-//     error::{Error, Result},
-//     process::{self, CURRENT_PROCESS},
-// };
-
 pub const PIPE_SIZE: usize = 1024;
 
-#[derive(Debug)]
 pub struct Pipe {
     data: RefCell<AllocRingBuffer<u8>>,
     read_end_open: Cell<bool>,
     write_end_open: Cell<bool>,
     read_offset: Cell<usize>,
     write_offset: Cell<usize>,
+    state: &'static GlobalState,
 }
 
-pub fn allocate_pipe(reader: &Rc<File>, writer: &Rc<File>) -> Rc<Pipe> {
+pub fn allocate_pipe(
+    state: &'static GlobalState,
+    reader: &Rc<File>,
+    writer: &Rc<File>,
+) -> Rc<Pipe> {
     let pipe = Rc::new(Pipe {
         data: RefCell::new(AllocRingBuffer::new(PIPE_SIZE)),
         read_end_open: Cell::new(true),
         write_end_open: Cell::new(true),
         read_offset: Cell::new(0),
         write_offset: Cell::new(0),
+        state,
     });
 
     *reader.file_type.borrow_mut() = FileType::Pipe(pipe.clone());
@@ -52,7 +52,7 @@ pub fn allocate_pipe(reader: &Rc<File>, writer: &Rc<File>) -> Rc<Pipe> {
 
 impl Pipe {
     pub fn write(&self, buffer: &[u8]) -> Result<()> {
-        let state = GlobalState::get();
+        let state = self.state;
 
         if self.write_end_open.get() == false {
             bail!(Error::PipeWriterClosed);
@@ -70,13 +70,9 @@ impl Pipe {
 
                 if let Some(process) = state.get_current_process() {
                     let mut process = process.lock();
-                    process::wake_up((&raw const self.read_offset).addr());
+                    process::wake_up(state, (&raw const self.read_offset).addr());
 
                     process.sleep((&raw const self.write_offset).addr());
-                }
-
-                unsafe {
-                    riscv::interrupt::supervisor::enable();
                 }
             }
 
@@ -84,7 +80,7 @@ impl Pipe {
                 .set((self.write_offset.get() + 1) % PIPE_SIZE);
         }
 
-        process::wake_up((&raw const self.read_offset).addr());
+        process::wake_up(state, (&raw const self.read_offset).addr());
 
         Ok(())
     }
@@ -107,7 +103,7 @@ impl Pipe {
             }
         }
 
-        process::wake_up((&raw const self.write_offset).addr());
+        process::wake_up(self.state, (&raw const self.write_offset).addr());
 
         bytes
     }
@@ -115,12 +111,12 @@ impl Pipe {
     pub fn close(&mut self) {
         if self.read_end_open.get() == true {
             self.read_end_open.set(false);
-            process::wake_up((&raw const self.write_offset).addr());
+            process::wake_up(self.state, (&raw const self.write_offset).addr());
         }
 
         if self.write_end_open.get() == true {
             self.write_end_open.set(false);
-            process::wake_up((&raw const self.read_offset).addr());
+            process::wake_up(self.state, (&raw const self.read_offset).addr());
         }
     }
 }

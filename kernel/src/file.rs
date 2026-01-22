@@ -13,7 +13,6 @@ use alloc::{
     vec::Vec,
 };
 use anyhow::{Result, bail};
-use sync::Lock;
 
 use crate::{
     DEVICE,
@@ -147,9 +146,7 @@ pub fn search_in_directory(inode: &Rc<MemoryINode>, name: &str) -> Result<Rc<Mem
 
 /// Traverses a path and returns the inode of the last component.
 /// For example, if the path is `/home/bar`, returns the inode of `bar`
-pub fn traverse_path(path: &str, parent: bool) -> Result<Rc<MemoryINode>> {
-    let state = GlobalState::get();
-
+pub fn traverse_path(state: &GlobalState, path: &str, parent: bool) -> Result<Rc<MemoryINode>> {
     let mut inode: Rc<MemoryINode>;
 
     if path == "/" {
@@ -193,8 +190,8 @@ pub fn traverse_path(path: &str, parent: bool) -> Result<Rc<MemoryINode>> {
     Ok(inode)
 }
 
-pub fn exists(path: &str) -> Result<bool> {
-    match traverse_path(path, false) {
+pub fn exists(state: &GlobalState, path: &str) -> Result<bool> {
+    match traverse_path(state, path, false) {
         Ok(_) => Ok(true),
         Err(e)
             if matches!(
@@ -208,14 +205,14 @@ pub fn exists(path: &str) -> Result<bool> {
     }
 }
 
-pub fn create_file(path: &str, kind: InodeEntry) -> Result<NonZeroUsize> {
-    if exists(path)? {
+pub fn create_file(state: &GlobalState, path: &str, kind: InodeEntry) -> Result<NonZeroUsize> {
+    if exists(state, path)? {
         bail!(Error::FileAlreadyExists {
             path: path.to_string(),
         });
     }
 
-    let parent_inode = traverse_path(path, true)?;
+    let parent_inode = traverse_path(state, path, true)?;
     let parent = read_inode(parent_inode.inum, &DEVICE);
 
     if parent.entry.get() != InodeEntry::Directory {
@@ -254,6 +251,7 @@ pub fn create_file(path: &str, kind: InodeEntry) -> Result<NonZeroUsize> {
 }
 
 pub fn open(
+    state: &GlobalState,
     path: &str,
     readable: bool,
     writeable: bool,
@@ -262,21 +260,19 @@ pub fn open(
     truncate: bool,
     append: bool,
 ) -> Result<usize> {
-    let state = GlobalState::get();
-
-    if exists(path)? & create & excl {
+    if exists(state, path)? & create & excl {
         bail!(Error::FileAlreadyExists {
             path: path.to_string(),
         });
     }
 
-    let inode = match traverse_path(path, false) {
+    let inode = match traverse_path(state, path, false) {
         Ok(inode) => inode,
         Err(e) => {
             if let Error::NoSuchEntryInDirectory { name: _ } = e.downcast_ref().unwrap()
                 && create
             {
-                read_inode(create_file(path, InodeEntry::File)?, &DEVICE)
+                read_inode(create_file(state, path, InodeEntry::File)?, &DEVICE)
             } else {
                 return Err(e);
             }

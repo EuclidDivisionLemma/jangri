@@ -8,10 +8,14 @@ ringbuffer = "0.16.0"
 riscv.workspace = true
 allocator.workspace = true
 anyhow.workspace = true
-spin.workspace = true
 talc = "4.4.3"
 thiserror.workspace = true
 sync.workspace = true
+riscv_arch.workspace = true
+hal.workspace = true
+lock_api.workspace = true
+spin.workspace = true
+
 
 [dependencies.elf]
 version = "0.8.0"

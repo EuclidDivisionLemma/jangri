@@ -7,6 +7,7 @@ use crate::fs::sfs::{
     DirectoryEntry, FILE_NAME_SIZE, InodeEntry, flush_data_blocks, read_inode, write_inode,
     write_inode_data,
 };
+use crate::global_state::GlobalState;
 use crate::sfs::allocate_inode;
 use crate::traps::TrapFrame;
 use crate::vm::SUPERVISOR;
@@ -14,17 +15,37 @@ use crate::{DEVICE, INIT, syscall};
 pub mod caching;
 pub mod sfs;
 
-pub fn initialise() {
+pub fn initialise(state: &GlobalState) {
     sfs::initialise(&DEVICE);
     initialise_root(&DEVICE);
-    initialise_devices();
+    initialise_devices(state);
 
-    file::open("/dev/stdin", true, false, false, false, false, false).unwrap();
-    file::open("/dev/stdout", false, true, false, false, false, false).unwrap();
-    file::open("/dev/stderr", false, true, false, false, false, false).unwrap();
+    file::open(state, "/dev/stdin", true, false, false, false, false, false).unwrap();
+    file::open(
+        state,
+        "/dev/stdout",
+        false,
+        true,
+        false,
+        false,
+        false,
+        false,
+    )
+    .unwrap();
+    file::open(
+        state,
+        "/dev/stderr",
+        false,
+        true,
+        false,
+        false,
+        false,
+        false,
+    )
+    .unwrap();
 
     // Copy sh.elf to /sh
-    let fd = file::open("sh", true, true, true, true, false, false).unwrap();
+    let fd = file::open(state, "sh", true, true, true, true, false, false).unwrap();
 
     let mut mock_traptrame = TrapFrame::default();
     mock_traptrame.a0 = fd;
@@ -36,8 +57,8 @@ pub fn initialise() {
         SUPERVISOR = true;
     }
 
-    syscall::io::write(&mock_traptrame);
-    syscall::io::close(&mock_traptrame);
+    syscall::io::write(state, &mock_traptrame);
+    syscall::io::close(state, &mock_traptrame);
 
     unsafe {
         SUPERVISOR = false;
@@ -104,16 +125,16 @@ pub fn initialise_root(device: &'static dyn Storage) {
     inode.needs_write.set(true);
 }
 
-pub fn initialise_devices() {
-    create_file("/dev", InodeEntry::Directory)
+pub fn initialise_devices(state: &GlobalState) {
+    create_file(state, "/dev", InodeEntry::Directory)
         .expect("ERROR WHILE INITIALISING DEVICES - /dev CREATION FAILED");
 
-    create_file("/dev/stdin", InodeEntry::Device)
+    create_file(state, "/dev/stdin", InodeEntry::Device)
         .expect("ERROR WHILE INITIALISING DEVICES - /dev/stdin CREATION FAILED");
 
-    create_file("/dev/stdout", InodeEntry::Device)
+    create_file(state, "/dev/stdout", InodeEntry::Device)
         .expect("ERROR WHILE INITIALISING DEVICES - /dev/stdout CREATION FAILED");
 
-    create_file("/dev/stderr", InodeEntry::Device)
+    create_file(state, "/dev/stderr", InodeEntry::Device)
         .expect("ERROR WHILE INITIALISING DEVICES - /dev/stderr CREATION FAILED");
 }

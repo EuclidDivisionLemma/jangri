@@ -1,20 +1,18 @@
-#include "sys/unistd.h"
-#include "syscalls.h"
-#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 
 int main()
 {
-    int pid = fork();
+    int* x = malloc(sizeof(int));
+    printf("Enter your age: ");
+    scanf("%d", x);
 
-    if(pid == 0)
+    if (*x < 18)
     {
-        printf("Hello from child\n");
+        printf("You are not eligible to vote\n");
     }
     else
     {
-        wait(pid);
-        printf("GOOD BYE!\n");
+        printf("You are indeed eligible\n");
     }
 }

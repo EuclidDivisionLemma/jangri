@@ -1,5 +1,5 @@
 use crate::{
-    DEVICE, INIT,
+    ARCH, DEVICE, INIT, Mutex, PAGE_TABLE_ENTRY,
     constants::{
         EXECUTE_ONLY, KERNEL_PAGE_TABLE, MAXIMUM_PROCESS, PAGE_SIZE, READ_EXECUTE, READ_ONLY,
         READ_WRITE, ROOT_INODE, STACK_PAGES, STACK_START, Sv48, TRAMPOLINE,
@@ -10,7 +10,10 @@ use crate::{
     global_state::GlobalState,
     scheduler::{Context, switch_to_scheduler_context},
     syscall::stdout,
-    traps::{TrapFrame, set_up_supervisor_to_user_mode_transition, user_trap},
+    traps::{
+        self, TrapFrame, handle_traps_from_user_mode, set_up_supervisor_to_user_mode_transition,
+        user_trap,
+    },
     vm::{self, drop_pages, kernel_stack_address, map, map_trampoline},
 };
 use alloc::{
@@ -32,7 +35,7 @@ use core::{
     ptr::{self, null_mut, write_volatile},
 };
 use elf::{ElfBytes, endian::NativeEndian};
-use sync::{Lock, Mutex, MutexGuard};
+use lock_api::MutexGuard;
 
 #[derive(Clone)]
 pub enum ProcessState {
@@ -78,7 +81,7 @@ impl Debug for Process {
 }
 
 impl Process {
-    pub fn default(id: usize) -> Self {
+    pub fn default(id: usize, context: &'static GlobalState) -> Self {
         Process {
             id,
             name: "".into(),
@@ -93,7 +96,7 @@ impl Process {
             fds: Vec::new(),
             size: 0,
             argv_addr: Vec::new(),
-            global_state: GlobalState::get(),
+            global_state: context,
         }
     }
 
@@ -158,9 +161,7 @@ impl Process {
     // }
 }
 
-pub fn yield_cpu() {
-    let state = GlobalState::get();
-
+pub fn yield_cpu(state: &GlobalState) {
     let locked_process = state
         .get_current_process()
         .expect("YIELD FAILED - NO CURRENT PROCESS");
@@ -170,7 +171,7 @@ pub fn yield_cpu() {
         process.process_state = ProcessState::Ready { cwd: cwd.clone() }
     }
     drop(process);
-    switch_to_scheduler_context();
+    switch_to_scheduler_context(state);
 }
 
 pub fn are_interrupts_enabled() -> bool {
@@ -180,7 +181,7 @@ pub fn are_interrupts_enabled() -> bool {
         (sstatus & (1 << 1)) != 0
     }
 }
-pub fn assign_process(state: &GlobalState) -> Result<Arc<Mutex<Process>>> {
+pub fn assign_process(state: &'static GlobalState) -> Result<Arc<Mutex<Process>>> {
     static PID: spin::Mutex<usize> = spin::Mutex::new(0);
 
     let page_table = state.allocate(PAGE_SIZE).unwrap();
@@ -189,14 +190,7 @@ pub fn assign_process(state: &GlobalState) -> Result<Arc<Mutex<Process>>> {
     let mut pid = PID.lock();
     *pid += 1;
 
-    let locked_process = Arc::new(Mutex::new(
-        Process::default(*pid - 1),
-        1,
-        || 0,
-        riscv::interrupt::supervisor::enable,
-        riscv::interrupt::supervisor::disable,
-        are_interrupts_enabled,
-    ));
+    let locked_process = Arc::new(Mutex::new(Process::default(*pid - 1, state)));
     state.add_process(*pid, locked_process.clone());
 
     let mut process = locked_process.lock();
@@ -227,65 +221,76 @@ pub fn map_code_pages(
     code_pa: usize,
     code_va: usize,
     num_code_pages: usize,
-    permissions: usize,
+    read: bool,
+    write: bool,
+    execute: bool,
 ) {
     if code_va == TRAMPOLINE {
         panic!("PROCESS CREATION FAILED - CODE SEGMENT CANNOT BE MAPPED TO TRAMPOLINE ADDRESS");
     } else if code_va == TRAPFRAME {
         panic!("PROCESS CREATION FAILED - CODE SEGMENT CANNOT BE MAPPED TO TRAPFRAME ADDRESS");
     }
-    map(
-        state,
-        page_table,
-        code_va,
-        code_pa,
-        num_code_pages * PAGE_SIZE,
-        permissions | USER_MODE,
-    )
-    .expect("PROCESS CREATION FAILED - ERROR WHILE MAPPING CODE PAGES");
+    state
+        .map(
+            page_table,
+            code_va,
+            code_pa,
+            num_code_pages * PAGE_SIZE,
+            read,
+            write,
+            execute,
+            true,
+        )
+        .expect("PROCESS CREATION FAILED - ERROR WHILE MAPPING CODE PAGES");
 }
 
 pub fn map_other_pages(
     state: &GlobalState,
     page_table: usize,
     final_code: usize,
-    process: &mut MutexGuard<Process>,
+    process: &mut MutexGuard<sync::RawMutex<PAGE_TABLE_ENTRY, ARCH>, Process>,
 ) -> Result<()> {
-    if (TRAPFRAME - final_code) < (14 * PAGE_SIZE) {
+    if (TRAPFRAME - final_code) < (10 * PAGE_SIZE) {
         panic!("PROCESS CREATION FAILED - NOT ENOUGH SPACE FOR STACK AND HEAP");
     }
 
     let stack = state.allocate(STACK_PAGES * PAGE_SIZE).unwrap();
 
-    map(
-        state,
+    state.map(
         page_table,
         STACK_START,
         stack,
         STACK_PAGES * PAGE_SIZE,
-        READ_WRITE | USER_MODE,
+        true,
+        true,
+        false,
+        true,
     )?;
 
     process.kernel_stack = kernel_stack_address(process.id);
 
-    map_trampoline(
-        state,
+    state.map(
         page_table,
         TRAMPOLINE,
         unsafe { TRAMPOLINE_CODE_ADDRESS },
         PAGE_SIZE,
-        READ_EXECUTE,
+        true,
+        false,
+        true,
+        false,
     )?;
 
     let trapframe = process.trapframe;
 
-    map(
-        state,
+    state.map(
         page_table,
         TRAPFRAME,
         trapframe.addr(),
         PAGE_SIZE,
-        READ_WRITE,
+        true,
+        true,
+        false,
+        false,
     )?;
 
     unsafe {
@@ -297,7 +302,7 @@ pub fn map_other_pages(
     Ok(())
 }
 
-pub fn start_init(state: &GlobalState) {
+pub fn start_init(state: &'static GlobalState) {
     let mut page = 0;
     let mut max_code_page_end_va = 0;
 
@@ -323,7 +328,9 @@ pub fn start_init(state: &GlobalState) {
             continue;
         }
 
-        page = state.allocate(num_pages * PAGE_SIZE).unwrap();
+        page = state
+            .allocate((num_pages * PAGE_SIZE).next_power_of_two())
+            .unwrap();
 
         let offset = header.p_offset as usize;
 
@@ -334,23 +341,34 @@ pub fn start_init(state: &GlobalState) {
             max_code_page_end_va = va + num_pages * PAGE_SIZE;
         }
 
-        let mut permissions = 0;
+        let mut read = false;
+        let mut write = false;
+        let mut execute = false;
 
         if flags & elf::abi::PF_R != 0 {
-            permissions |= READ_ONLY;
+            read = true;
         }
 
         if flags & elf::abi::PF_W != 0 {
-            permissions |= WRITE_ONLY;
+            write = true;
         }
 
         if flags & elf::abi::PF_X != 0 {
-            permissions |= EXECUTE_ONLY;
+            execute = true;
         }
 
         let loadable = &INIT[offset..offset + file_size];
 
-        map_code_pages(state, process.page_table, page, va, num_pages, permissions);
+        map_code_pages(
+            state,
+            process.page_table,
+            page,
+            va,
+            num_pages,
+            read,
+            write,
+            execute,
+        );
         process.size += num_pages * PAGE_SIZE;
 
         unsafe {
@@ -375,10 +393,10 @@ pub fn start_init(state: &GlobalState) {
     unsafe {
         (*trapframe).sepc = elf_data.ehdr.e_entry as usize;
     }
-    process.context.ra = prepare_first_time_execution as usize;
+    process.context.ra = prepare_first_time_execution as fn() as usize;
 
     unsafe {
-        process.context.sp = (*trapframe).kernel_stack + PAGE_SIZE;
+        process.context.sp = (*trapframe).kernel_stack + 4 * PAGE_SIZE;
         (*trapframe).brk.set(max_code_page_end_va);
         (*trapframe).heap_end.set(max_code_page_end_va);
     }
@@ -386,8 +404,7 @@ pub fn start_init(state: &GlobalState) {
 
 /// This function is called when a process has to be executed for the first time.
 pub fn prepare_first_time_execution() {
-    let state = GlobalState::get();
-
+    let state = traps::get_global_state();
     let locked_process = state.get_current_process().expect("NO CURRENT PROCESS");
     let trapframe;
 
@@ -395,7 +412,7 @@ pub fn prepare_first_time_execution() {
 
     trapframe = process.trapframe;
     drop(process);
-    set_up_supervisor_to_user_mode_transition()
+    set_up_supervisor_to_user_mode_transition(state)
         .expect("INIT FAILED - CONTEXT NONE WHILE RETURNING TO USER MODE");
 
     unsafe {
@@ -416,12 +433,11 @@ impl Process {
             _ => (),
         }
 
-        switch_to_scheduler_context();
+        switch_to_scheduler_context(self.global_state);
     }
 }
 
-pub fn wake_up(sleep_on_arg: usize) {
-    let state = GlobalState::get();
+pub fn wake_up(state: &GlobalState, sleep_on_arg: usize) {
     if let Some((pid, cwd)) = state.find_sleeping_process(sleep_on_arg) {
         let process = state.get_process(pid).unwrap();
         let mut process = process.lock();

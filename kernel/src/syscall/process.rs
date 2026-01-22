@@ -3,7 +3,6 @@ use core::{
     ffi::{CStr, c_char, c_str},
     ptr::{self},
 };
-use sync::Lock;
 
 use alloc::vec::Vec;
 use elf::{ElfBytes, endian::NativeEndian};
@@ -22,9 +21,8 @@ use crate::{
     vm::{SUPERVISOR, translate_virtual_address},
 };
 
-pub fn exit(trapframe: &TrapFrame) -> usize {
+pub fn exit(state: &GlobalState, trapframe: &TrapFrame) -> usize {
     let return_value = trapframe.a0;
-    let state = GlobalState::get();
     let process = state.get_current_process().unwrap();
     let mut current_process = process.lock();
 
@@ -55,9 +53,9 @@ pub fn exit(trapframe: &TrapFrame) -> usize {
 
     let id = current_process.id;
     drop(current_process);
-    process::wake_up(id);
+    process::wake_up(state, id);
 
-    switch_to_scheduler_context();
+    switch_to_scheduler_context(state);
     0
 }
 

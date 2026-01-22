@@ -4,10 +4,12 @@ use core::{
     ptr::{NonNull, write_bytes, write_volatile},
 };
 
+extern crate alloc;
+
 use anyhow::{Result, bail};
 
 use crate::{
-    PAGE_SIZE,
+    ALLOC, PAGE_SIZE,
     linked_list::{LinkedList, MAGIC_1, MAGIC_2, Node, generate_node_id},
 };
 
@@ -30,7 +32,13 @@ pub struct PageAllocator {
 
 impl Debug for PageAllocator {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.write_str("Global Page Allocator: PageAllocator")
+        f.write_str(&alloc::format!(
+            "Global Page Allocator managing memory
+            between {} and {} with currently carveable memory {}",
+            self.memory_start,
+            self.memory_end,
+            self.current_size
+        ))
     }
 }
 
@@ -58,8 +66,8 @@ impl PageAllocator {
     }
 
     fn get_best_fit(&mut self, size: usize) -> Option<NonNull<Node>> {
-        let rounded_size = size.next_power_of_two();
-        let order = rounded_size.ilog2() as usize;
+        assert!(size.is_power_of_two() && size >= PAGE_SIZE);
+        let order = size.ilog2() as usize;
 
         for order in order..MAX_ORDER {
             if self.buckets[index_from_order(order)].head.is_some() {
@@ -89,7 +97,10 @@ impl PageAllocator {
     }
 
     pub fn allocate(&mut self, size: usize) -> Result<usize> {
-        let size = size.next_power_of_two();
+        // The caller must ensure that the size is a power of two.
+        // This prevents a non-power-of-two size from being passed
+        // inadvertantly, causing a larger size to be allocated.
+        assert!(size.is_power_of_two() && size >= PAGE_SIZE);
 
         if size < MIN_ALLOC {
             bail!("Allocation Error: Minimum allocation size is 4KiB");
@@ -138,7 +149,11 @@ impl PageAllocator {
         if self.current_size == 0 || size > self.current_size {
             match (self.evict)(size / PAGE_SIZE) {
                 Ok(addr) => return Ok(addr),
-                Err(e) => bail!("Allocation Error: No Free Page; caused by: {}", e),
+                Err(e) => bail!(
+                    "Allocation Error: No Free Page; caused by: {}; {:?}",
+                    e,
+                    self
+                ),
             }
         }
 
@@ -203,5 +218,9 @@ impl PageAllocator {
             let new_order = order_from_size(unsafe { (*block.as_ptr()).size });
             self.buckets[index_from_order(new_order)].push_front(block);
         }
+    }
+
+    pub fn get_carveable_memory(&self) -> usize {
+        self.current_size
     }
 }

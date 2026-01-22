@@ -4,9 +4,6 @@
 
 use core::arch::global_asm;
 
-use alloc::format;
-use spin::Once;
-
 use crate::{
     constants::{
         END_OF_KERNEL_TEXT, KERNEL_END, KERNEL_HEAP_SIZE, KERNEL_PAGE_TABLE, KERNEL_START,
@@ -60,6 +57,16 @@ global_asm!(
 
 pub const INIT: &[u8] = include_bytes!("../../userspace/init.elf");
 
+#[cfg(target_arch = "riscv64")]
+pub type ARCH = riscv_arch::Riscv;
+
+#[cfg(target_arch = "riscv64")]
+#[allow(non_camel_case_types)]
+pub type PAGE_TABLE_ENTRY = riscv_arch::vm::PageTableEntry;
+
+pub type Mutex<T> = sync::Mutex<T, PAGE_TABLE_ENTRY, ARCH>;
+pub type RwLock<T> = sync::RwLock<T, PAGE_TABLE_ENTRY, ARCH>;
+
 unsafe extern "C" {
     static kernel_end: u8;
     static end_of_kernel_text: u8;
@@ -96,11 +103,11 @@ fn main() -> ! {
 
     initialise_plic();
     initialise_uart();
-    fs::initialise();
+    fs::initialise(state);
 
     console_write("\x1b[2J\x1b[HJangri v0.0.1\n");
 
-    start_init(&state);
+    start_init(state);
 
-    schedule();
+    schedule(state);
 }

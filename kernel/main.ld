@@ -42,7 +42,7 @@ SECTIONS
 
     .stack :
     {
-        . = . + 12582912;
+        . = . + 26214400;
     }
     PROVIDE(stack_top = .);
     PROVIDE(kernel_end = .);

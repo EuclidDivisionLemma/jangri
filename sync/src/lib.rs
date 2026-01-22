@@ -5,114 +5,35 @@
 
 extern crate alloc;
 
-mod spinlock;
+mod mutex;
+mod rwlock;
 
-use core::{
-    cell::UnsafeCell,
-    ops::{Deref, DerefMut},
-};
+use hal::{Hal, vm::PageTableEntry};
 
-use alloc::vec::Vec;
-pub use spinlock::Mutex;
+#[cfg(target_arch = "riscv64")]
+pub type RawMutex<P, A> = mutex::Mutex<P, A>;
+pub type RawRwLock<P, A> = rwlock::RwLock<P, A>;
+pub type Mutex<T, P, A> = lock_api::Mutex<RawMutex<P, A>, T>;
+pub type RwLock<T, P, A> = lock_api::RwLock<RawRwLock<P, A>, T>;
 
-// pub fn push() {
-//     unsafe {
-//         let were_interrupts_originally_enabled = are_interrupts_enabled();
+fn push<P: PageTableEntry, A: Hal<P>>() {
+    let were_interrupts_originally_enabled = A::are_interrupts_enabled();
 
-//         riscv::interrupt::supervisor::disable();
+    A::disable_interrupts();
 
-//         let hart = get_hart();
-
-//         if *hart.nesting_level.get() == 0 {
-//             *hart.were_interrupts_originally_enabled.get() = were_interrupts_originally_enabled;
-//         }
-
-//         *hart.nesting_level.get() += 1;
-//     }
-// }
-
-// pub fn pop() {
-//     unsafe {
-//         let hart = get_hart();
-
-//         *hart.nesting_level.get() -= 1;
-
-//         if *hart.nesting_level.as_ref_unchecked() == 0
-//             && *hart.were_interrupts_originally_enabled.as_ref_unchecked()
-//         {
-//             riscv::interrupt::supervisor::enable();
-//         }
-//     }
-// }
-struct Hart {
-    were_interrupts_originally_enabled: bool,
-    nesting_level: usize,
-}
-
-static mut HARTS: Vec<Hart> = Vec::new();
-
-pub trait Lock<T> {
-    fn is_current_hart_holding(&self) -> bool;
-    fn lock<'a>(&'a self) -> MutexGuard<'a, T>;
-    fn try_lock<'a>(&'a self) -> Option<MutexGuard<'a, T>>;
-    fn set(&self, data: T);
-    fn get_mut(&mut self) -> &mut T;
-    fn data(&self) -> &UnsafeCell<T>;
-    unsafe fn unlock(&self);
-}
-
-pub struct MutexGuard<'a, T> {
-    lock: &'a dyn Lock<T>,
-}
-
-impl<'a, T> Deref for MutexGuard<'a, T> {
-    type Target = T;
-
-    fn deref(&self) -> &Self::Target {
-        unsafe { &*self.lock.data().get() }
+    if A::nesting_level() == 0 {
+        A::set_original_interrupt_status(were_interrupts_originally_enabled);
     }
+
+    A::increase_nesting_level();
 }
 
-impl<'a, T> DerefMut for MutexGuard<'a, T> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        unsafe { &mut *self.lock.data().get() }
-    }
-}
-
-impl<'a, T> Drop for MutexGuard<'a, T> {
-    fn drop(&mut self) {
-        unsafe { self.lock.unlock() }
-    }
-}
-
-fn push(
-    get_current_hart: fn() -> usize,
-    interrupts_disable: fn(),
-    are_interrupts_enabled: fn() -> bool,
-) {
-    let were_interrupts_originally_enabled = are_interrupts_enabled();
-
-    interrupts_disable();
-
-    let hart = get_current_hart();
-
+pub fn pop<P: PageTableEntry, A: Hal<P>>() {
     unsafe {
-        if HARTS[hart].nesting_level == 0 {
-            HARTS[hart].were_interrupts_originally_enabled = were_interrupts_originally_enabled;
-        }
+        A::decrease_nesting_level();
 
-        HARTS[hart].nesting_level += 1;
-    }
-}
-
-pub fn pop(get_current_hart: fn() -> usize, interrupts_enable: unsafe fn()) {
-    let hart = get_current_hart();
-
-    unsafe {
-        HARTS[hart].nesting_level -= 1;
-
-        if HARTS[hart].nesting_level == 0 && HARTS[hart].were_interrupts_originally_enabled {
-            interrupts_enable();
+        if A::nesting_level() == 0 && A::were_interrupts_originally_enabled() {
+            A::enable_interrupts();
         }
     }
 }

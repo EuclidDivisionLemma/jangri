@@ -48,9 +48,7 @@ handle_traps_from_user_mode:
 
 
     ld sp, 264(a0) # Set sp to point to the process's kernel stack
-    li t0, 4096
-    li t1, 6
-    mul t0, t0, t1
+    li t0, 16384
     add sp, sp, t0
 
     # load the kernel page table address

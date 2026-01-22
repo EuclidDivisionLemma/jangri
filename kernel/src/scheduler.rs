@@ -1,7 +1,5 @@
 use core::{arch::global_asm, cell::LazyCell};
 
-use sync::Lock;
-
 use crate::{
     global_state::GlobalState,
     process::ProcessState,
@@ -77,16 +75,9 @@ global_asm!(
     "#
 );
 
-pub fn schedule() -> ! {
-    let state = GlobalState::get();
-
+pub fn schedule(state: &GlobalState) -> ! {
     loop {
         let mut found = false;
-
-        unsafe {
-            riscv::interrupt::supervisor::enable();
-            riscv::interrupt::supervisor::disable();
-        }
 
         if let Some((pid, cwd)) = state.find_ready_process() {
             let locked_process = state.get_process(pid).unwrap();
@@ -114,8 +105,7 @@ pub fn schedule() -> ! {
 }
 
 /// Switches from the current process context to the scheduler context.
-pub fn switch_to_scheduler_context() {
-    let state = GlobalState::get();
+pub fn switch_to_scheduler_context(state: &GlobalState) {
     let context;
 
     let process = state.get_current_process().unwrap();
