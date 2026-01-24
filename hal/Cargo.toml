@@ -6,3 +6,4 @@ edition = "2024"
 [dependencies]
 anyhow.workspace = true
 thiserror.workspace = true
+ringbuffer = "0.16.0"

@@ -1,10 +1,7 @@
 use core::{arch::global_asm, cell::LazyCell};
+use hal::interrupts::InterruptHandling;
 
-use crate::{
-    global_state::GlobalState,
-    process::ProcessState,
-    syscall::{process, stdout},
-};
+use crate::{ARCH, global_state::GlobalState, process::ProcessState};
 
 #[repr(C)]
 #[derive(Clone, Default)]
@@ -99,7 +96,7 @@ pub fn schedule(state: &GlobalState) -> ! {
         }
 
         if !found {
-            riscv::asm::wfi();
+            ARCH::wfi();
         }
     }
 }

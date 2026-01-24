@@ -55,6 +55,7 @@ name = "hal"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "ringbuffer",
  "thiserror",
 ]
 
@@ -69,7 +70,6 @@ dependencies = [
  "hal",
  "lock_api",
  "ringbuffer",
- "riscv",
  "riscv_arch",
  "spin",
  "sync",
@@ -152,7 +152,10 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "hal",
+ "ringbuffer",
  "riscv",
+ "spin",
+ "sync",
 ]
 
 [[package]]

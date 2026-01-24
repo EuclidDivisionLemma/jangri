@@ -3,6 +3,7 @@ use core::{
     ffi::{CStr, c_char, c_str},
     ptr::{self},
 };
+use hal::interrupts::SyscallArgs;
 
 use alloc::vec::Vec;
 use elf::{ElfBytes, endian::NativeEndian};
@@ -17,12 +18,11 @@ use crate::{
     process::{self, ProcessState, map_code_pages, map_other_pages},
     scheduler::switch_to_scheduler_context,
     syscall::{self, stdout},
-    traps::TrapFrame,
     vm::{SUPERVISOR, translate_virtual_address},
 };
 
-pub fn exit(state: &GlobalState, trapframe: &TrapFrame) -> usize {
-    let return_value = trapframe.a0;
+pub fn exit(state: &GlobalState, args: SyscallArgs) -> usize {
+    let return_value = args.1;
     let process = state.get_current_process().unwrap();
     let mut current_process = process.lock();
 

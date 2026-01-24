@@ -46,16 +46,8 @@ pub const TRAPFRAME: usize = TRAMPOLINE - PAGE_SIZE;
 
 pub const RAM_STOP: usize = 0x80000000 + 0x100000000;
 
-pub const TIMER_EXTENION_ID: usize = 0x54494D45;
-
 pub const STACK_PAGES: usize = 8;
 
 pub static mut TRAMPOLINE_OFFSET: usize = 0;
-
-pub const UART_ID: usize = 10;
-pub const UART_PRIORITY_ADDRESS: usize = PLIC + UART_ID * 4;
-pub const PLIC_S_MODE_ENABLE: usize = PLIC + 0x2080;
-pub const PLIC_S_MODE_THRESHOLD: usize = PLIC + 0x201000;
-pub const PLIC_S_MODE_CLAIM: usize = PLIC + 0x201004;
 
 pub const ROOT_INODE: NonZeroUsize = unsafe { NonZeroUsize::new_unchecked(1) };

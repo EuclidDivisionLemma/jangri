@@ -5,18 +5,18 @@ use core::{
 };
 
 use alloc::{slice, vec::Vec};
+use hal::interrupts::SyscallArgs;
 use ringbuffer::RingBuffer;
 
 use crate::{
     DEVICE,
-    drivers::uart::{self, INPUT_BUFFER, READ, console_write_bytes},
     file::{self, FILES, FileType, STDERR, STDIN, STDOUT, allocate_file},
     fs::sfs::{
         FILE_NAME_SIZE, InodeEntry, flush_data_blocks, flush_inodes, read_inode, read_inode_data,
         write_inode_data,
     },
     global_state::GlobalState,
-    traps::TrapFrame,
+    uart::{self, INPUT_BUFFER, READ, console_write_bytes},
     vm::translate_virtual_address,
 };
 
@@ -73,10 +73,15 @@ impl Neg for Error {
     }
 }
 
-pub fn open(state: &GlobalState, trapframe: &TrapFrame) -> usize {
-    let ptr = translate_virtual_address(state, trapframe.page_table, trapframe.a0)
+pub fn open(state: &GlobalState, args: SyscallArgs) -> usize {
+    let current_process = state.get_current_process().unwrap();
+    let current_process = current_process.lock();
+    let page_table = current_process.page_table;
+    drop(current_process);
+
+    let ptr = translate_virtual_address(state, page_table, args.1)
         .unwrap_or_else(|e| panic!("OPEN FAILED - {}", e)) as *const u8;
-    let flag = trapframe.a1;
+    let flag = args.2;
 
     let mut path = Vec::new();
     let mut ch = unsafe { *ptr };
@@ -169,13 +174,18 @@ pub fn open(state: &GlobalState, trapframe: &TrapFrame) -> usize {
     }
 }
 
-pub fn write(state: &GlobalState, trapframe: &TrapFrame) -> usize {
-    let fd = trapframe.a0;
-    let num_bytes = trapframe.a2;
+pub fn write(state: &GlobalState, args: SyscallArgs) -> usize {
+    let fd = args.1;
+    let num_bytes = args.3;
+
+    let current_process = state.get_current_process().unwrap();
+    let current_process = current_process.lock();
+    let page_table = current_process.page_table;
+    drop(current_process);
 
     let buffer = unsafe {
         slice::from_raw_parts(
-            translate_virtual_address(state, trapframe.page_table, trapframe.a1)
+            translate_virtual_address(state, page_table, args.2)
                 .unwrap_or_else(|e| panic!("WRITE FAILED - {}", e)) as *mut u8,
             num_bytes,
         )
@@ -253,35 +263,44 @@ pub fn write(state: &GlobalState, trapframe: &TrapFrame) -> usize {
     }
 }
 
-pub fn read(state: &GlobalState, trapframe: &TrapFrame) -> usize {
-    let fd = trapframe.a0;
-    let num_bytes = trapframe.a2;
+pub fn read(state: &GlobalState, args: SyscallArgs) -> usize {
+    let fd = args.1;
+    let num_bytes = args.3;
+
+    let current_process = state.get_current_process().unwrap();
+    let current_process = current_process.lock();
+    let page_table = current_process.page_table;
+    drop(current_process);
 
     let buffer = unsafe {
         slice::from_raw_parts_mut(
-            translate_virtual_address(state, trapframe.page_table, trapframe.a1)
+            translate_virtual_address(state, page_table, args.2)
                 .unwrap_or_else(|e| panic!("READ FAILED: {}", e)) as *mut u8,
             num_bytes,
         )
     };
 
     if fd == STDIN {
-        riscv::interrupt::supervisor::disable();
+        state.disable_interrupts();
 
         unsafe {
             uart::READ = true;
-            uart::INPUT_BUFFER.clear();
+            let mut buffer = uart::INPUT_BUFFER.lock();
+            buffer.clear();
         }
 
         unsafe {
-            riscv::interrupt::supervisor::enable();
+            state.enable_interrupts();
         }
 
         let mut read = 0;
 
         loop {
-            riscv::interrupt::supervisor::disable();
-            if let Some(ch) = unsafe { INPUT_BUFFER.dequeue() } {
+            state.disable_interrupts();
+            if let Some(ch) = unsafe {
+                let mut buffer = uart::INPUT_BUFFER.lock();
+                buffer.dequeue()
+            } {
                 if ch == '\n' as u8 {
                     if read < num_bytes {
                         buffer[read] = '\n' as u8;
@@ -301,18 +320,18 @@ pub fn read(state: &GlobalState, trapframe: &TrapFrame) -> usize {
             }
 
             unsafe {
-                riscv::interrupt::supervisor::enable();
+                state.enable_interrupts();
             }
         }
 
         buffer[read..num_bytes].fill(0);
 
-        riscv::interrupt::supervisor::disable();
+        state.disable_interrupts();
         unsafe {
             READ = false;
         }
         unsafe {
-            riscv::interrupt::supervisor::enable();
+            state.enable_interrupts();
         }
 
         return read;
@@ -359,8 +378,8 @@ pub fn read(state: &GlobalState, trapframe: &TrapFrame) -> usize {
     }
 }
 
-pub fn close(_: &GlobalState, trapframe: &TrapFrame) -> usize {
-    let fd = trapframe.a0;
+pub fn close(_: &GlobalState, args: SyscallArgs) -> usize {
+    let fd = args.1;
 
     match unsafe { FILES.remove(&fd) } {
         Some(file) => match &*file.file_type.borrow() {
@@ -384,11 +403,11 @@ pub fn close(_: &GlobalState, trapframe: &TrapFrame) -> usize {
     0
 }
 
-pub fn lseek(_: &GlobalState, trapframe: &TrapFrame) -> usize {
-    let fd = trapframe.a0;
-    let new_offset = trapframe.a1 as isize;
+pub fn lseek(_: &GlobalState, args: SyscallArgs) -> usize {
+    let fd = args.1;
+    let new_offset = args.2 as isize;
 
-    let whence = trapframe.a2;
+    let whence = args.3;
 
     match unsafe { FILES.get(&fd) } {
         Some(file) => match &mut *file.file_type.borrow_mut() {

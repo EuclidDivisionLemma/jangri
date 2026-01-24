@@ -1,5 +1,5 @@
 use crate::{
-    ARCH, DEVICE, INIT, Mutex, PAGE_TABLE_ENTRY,
+    ARCH, DEVICE, INIT, Mutex, PAGE_TABLE_ENTRY, TrapFrame,
     constants::{
         EXECUTE_ONLY, KERNEL_PAGE_TABLE, MAXIMUM_PROCESS, PAGE_SIZE, READ_EXECUTE, READ_ONLY,
         READ_WRITE, ROOT_INODE, STACK_PAGES, STACK_START, Sv48, TRAMPOLINE,
@@ -10,10 +10,7 @@ use crate::{
     global_state::GlobalState,
     scheduler::{Context, switch_to_scheduler_context},
     syscall::stdout,
-    traps::{
-        self, TrapFrame, handle_traps_from_user_mode, set_up_supervisor_to_user_mode_transition,
-        user_trap,
-    },
+    traps::{self, set_up_supervisor_to_user_mode_transition, user_trap},
     vm::{self, drop_pages, kernel_stack_address, map, map_trampoline},
 };
 use alloc::{
@@ -37,7 +34,6 @@ use core::{
 use elf::{ElfBytes, endian::NativeEndian};
 use lock_api::MutexGuard;
 
-#[derive(Clone)]
 pub enum ProcessState {
     Ready {
         cwd: Rc<MemoryINode>,
@@ -46,7 +42,7 @@ pub enum ProcessState {
         cwd: Rc<MemoryINode>,
     },
     Terminated {
-        return_value: core::result::Result<isize, usize>,
+        return_value: core::result::Result<isize, Box<dyn Debug>>,
     },
     NotUsed,
     Sleeping {
@@ -72,6 +68,8 @@ pub struct Process {
     pub size: usize,
     pub argv_addr: Vec<usize>,
     pub global_state: &'static GlobalState,
+    pub heap_end: usize,
+    pub brk: usize,
 }
 
 impl Debug for Process {
@@ -97,6 +95,8 @@ impl Process {
             size: 0,
             argv_addr: Vec::new(),
             global_state: context,
+            heap_end: 0,
+            brk: 0,
         }
     }
 
@@ -397,8 +397,8 @@ pub fn start_init(state: &'static GlobalState) {
 
     unsafe {
         process.context.sp = (*trapframe).kernel_stack + 4 * PAGE_SIZE;
-        (*trapframe).brk.set(max_code_page_end_va);
-        (*trapframe).heap_end.set(max_code_page_end_va);
+        process.brk = max_code_page_end_va;
+        process.heap_end = max_code_page_end_va;
     }
 }
 

@@ -1,7 +1,6 @@
 use alloc::vec::Vec;
 
 pub mod ram_disk;
-pub mod uart;
 pub mod virtio_disk;
 
 pub trait Storage {

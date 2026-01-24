@@ -10,7 +10,6 @@ mod rwlock;
 
 use hal::{Hal, vm::PageTableEntry};
 
-#[cfg(target_arch = "riscv64")]
 pub type RawMutex<P, A> = mutex::Mutex<P, A>;
 pub type RawRwLock<P, A> = rwlock::RwLock<P, A>;
 pub type Mutex<T, P, A> = lock_api::Mutex<RawMutex<P, A>, T>;

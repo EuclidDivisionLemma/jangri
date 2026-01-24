@@ -1,7 +1,8 @@
-use alloc::format;
 use anyhow::{Result, bail};
+use lock_api::MutexGuard;
 
 use crate::{
+    ARCH, PAGE_TABLE_ENTRY, RawMutex,
     constants::{
         END_OF_KERNEL_TEXT, EXECUTE_ONLY, KERNEL_PAGE_TABLE, KERNEL_START, MAX_VA, MAXIMUM_PROCESS,
         PAGE_SIZE, PLIC, PLIC_SIZE, RAM_STOP, READ_EXECUTE, READ_ONLY, READ_WRITE, STACK_PAGES,
@@ -10,8 +11,8 @@ use crate::{
     },
     error::{self, Error},
     global_state::GlobalState,
+    process::Process,
     syscall::stdout,
-    traps::TrapFrame,
 };
 use core::ptr::write_volatile;
 use core::{
@@ -35,14 +36,7 @@ pub fn physical_address_to_page_table_entry(physical_address: usize) -> usize {
 }
 
 pub fn enable_paging() {
-    unsafe {
-        riscv::register::satp::set(
-            riscv::register::satp::Mode::Sv48,
-            0,
-            KERNEL_PAGE_TABLE >> 12,
-        );
-        asm!("sfence.vma");
-    }
+    <ARCH as hal::vm::VirtualMemory<PAGE_TABLE_ENTRY>>::enable_paging(unsafe { KERNEL_PAGE_TABLE });
 }
 
 pub fn align_to_page_size(size: usize) -> usize {
@@ -336,17 +330,18 @@ pub fn translate_virtual_address(
 pub fn allocate_heap(
     state: &GlobalState,
     increment: isize,
-    trapframe: &TrapFrame,
+    mut current_process: MutexGuard<RawMutex, Process>,
 ) -> Result<usize> {
-    if ((trapframe.brk.get() as isize + increment as isize) < 0)
-        || (trapframe.brk.get() as i128 + increment as i128) >= isize::MAX as i128
+    if ((current_process.brk as isize + increment as isize) < 0)
+        || (current_process.brk as i128 + increment as i128) >= isize::MAX as i128
     {
         bail!(error::Error::InvalidHeapSize)
     } else {
-        let new_brk = trapframe.brk.get() as isize + increment;
+        let new_brk = current_process.brk as isize + increment;
 
-        if new_brk >= trapframe.heap_end.get() as isize {
-            let num_bytes = (new_brk - trapframe.heap_end.get() as isize) as usize;
+        if new_brk >= current_process.heap_end as isize {
+            let num_bytes = (new_brk - current_process.heap_end as isize) as usize;
+            let num_bytes = num_bytes.next_power_of_two();
 
             let num_pages = {
                 if num_bytes == 0 {
@@ -356,13 +351,13 @@ pub fn allocate_heap(
                 }
             };
 
-            if (trapframe.heap_end.get() + num_pages * PAGE_SIZE) as i128
+            if (current_process.heap_end + num_pages * PAGE_SIZE) as i128
                 >= (TRAMPOLINE - 12 * PAGE_SIZE) as i128
             {
                 bail!(error::Error::InvalidHeapSize);
             }
 
-            if (trapframe.heap_end.get() as i128 + (num_pages * PAGE_SIZE) as i128)
+            if (current_process.heap_end as i128 + (num_pages * PAGE_SIZE) as i128)
                 >= isize::MAX as i128
             {
                 bail!(error::Error::InvalidHeapSize);
@@ -371,30 +366,25 @@ pub fn allocate_heap(
             let pa = state.allocate(num_pages * PAGE_SIZE)?;
             map(
                 state,
-                trapframe.page_table,
-                trapframe.heap_end.get(),
+                current_process.page_table,
+                current_process.heap_end,
                 pa,
                 num_pages * PAGE_SIZE,
                 READ_WRITE | USER_MODE,
             )?;
 
-            let old = trapframe.brk.get();
+            let old = current_process.brk;
 
-            trapframe
-                .heap_end
-                .set(trapframe.heap_end.get() + num_pages * PAGE_SIZE);
+            current_process.heap_end = current_process.heap_end + num_pages * PAGE_SIZE;
 
-            let process = state.get_current_process().unwrap();
-            let mut current_process = process.lock();
+            current_process.size = current_process.heap_end;
 
-            current_process.size = trapframe.heap_end.get();
-
-            trapframe.brk.set(new_brk as usize);
+            current_process.brk = new_brk as usize;
 
             Ok(old)
         } else {
-            let old = trapframe.brk.get();
-            trapframe.brk.set(old + increment as usize);
+            let old = current_process.brk;
+            current_process.brk = old + increment as usize;
             Ok(old)
         }
     }

@@ -43,6 +43,9 @@ handle_traps_from_user_mode:
     sd t5, 232(a0)
     sd t6, 240(a0)
 
+    csrr t0, sepc
+    sd t0, 248(a0) # store sepc into trapframe
+
     csrr t0, sscratch
     sd t0, 72(a0)
 

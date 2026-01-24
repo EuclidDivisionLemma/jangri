@@ -1,17 +1,26 @@
 #![no_std]
 
+use hal::interrupts::InterruptHandling;
 extern crate alloc;
 
-use core::sync::atomic::{AtomicBool, AtomicUsize};
+use core::{
+    arch::{asm, global_asm},
+    sync::atomic::{AtomicBool, AtomicUsize},
+};
 
 use alloc::sync::Arc;
 use anyhow::Result;
-use hal::{Hal, interrupts::InterruptHandling};
+use hal::Hal;
 
+use crate::vm::PageTableEntry;
+pub use traps::handle_traps_from_supervisor_mode;
+
+mod plic;
+mod traps;
+pub mod uart;
 pub mod vm;
 
-#[cfg(test)]
-mod tests;
+type Mutex<T> = sync::Mutex<T, PageTableEntry, Riscv>;
 
 pub struct Riscv {
     pub allocate: Arc<dyn Fn(usize) -> Result<usize>>,
@@ -21,31 +30,24 @@ pub struct Riscv {
 static NESTING_LEVEL: AtomicUsize = AtomicUsize::new(0);
 static WERE_INTERRUPTS_ORIGINALLY_ENABLED: AtomicBool = AtomicBool::new(false);
 
-impl InterruptHandling for Riscv {
-    unsafe fn enable_interrupts() {
-        unsafe {
-            riscv::interrupt::supervisor::enable();
-        }
-    }
+global_asm!(
+    r#"
+    .section .text.entry
+    .global entry
+    entry:
+        la sp, stack_top
+        j main
 
-    fn disable_interrupts() {
-        riscv::interrupt::supervisor::disable();
-    }
-
-    fn set_next_timer_interrupt(time: usize) {
-        todo!()
-    }
-
-    fn are_interrupts_enabled() -> bool {
-        riscv::register::sstatus::read().sie()
-    }
-}
+    "#
+);
 
 impl Hal<vm::PageTableEntry> for Riscv {
     fn new(
         allocate: Arc<dyn Fn(usize) -> Result<usize>>,
         deallocate: Arc<dyn Fn(usize, usize)>,
     ) -> Self {
+        plic::initialise();
+        Self::initialise_traps();
         Self {
             allocate,
             deallocate,
@@ -78,5 +80,9 @@ impl Hal<vm::PageTableEntry> for Riscv {
 
     fn nesting_level() -> usize {
         NESTING_LEVEL.load(core::sync::atomic::Ordering::Acquire)
+    }
+
+    fn get_trampoline_offset() -> usize {
+        todo!()
     }
 }

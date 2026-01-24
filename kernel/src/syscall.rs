@@ -4,10 +4,11 @@ use core::{
     ptr::slice_from_raw_parts_mut,
 };
 
-use alloc::{format, vec::Vec};
+use hal::interrupts::{InterruptHandling, Syscall, SyscallArgs, TrapFrame};
 
 use crate::{
-    file::{self, FILES, allocate_file, exists, traverse_path},
+    ARCH,
+    file::{FILES, allocate_file},
     global_state::GlobalState,
     pipe::allocate_pipe,
     process::ProcessState,
@@ -16,7 +17,6 @@ use crate::{
         io::Error,
         process::exit,
     },
-    traps::TrapFrame,
     vm::{self, translate_virtual_address},
 };
 
@@ -24,7 +24,7 @@ pub mod fs;
 pub mod io;
 pub mod process;
 
-pub const SYSCALLS: [(Syscall, fn(&GlobalState, &TrapFrame) -> usize); 11] = [
+pub const SYSCALLS: [(Syscall, fn(&GlobalState, SyscallArgs) -> usize); 11] = [
     (Syscall::Open, io::open),
     (Syscall::Read, io::read),
     (Syscall::Write, io::write),
@@ -37,23 +37,6 @@ pub const SYSCALLS: [(Syscall, fn(&GlobalState, &TrapFrame) -> usize); 11] = [
     (Syscall::Chdir, chdir),
     (Syscall::Mkdir, mkdir),
 ];
-
-#[derive(PartialEq, Eq, PartialOrd, Ord)]
-pub enum Syscall {
-    Open = 100,
-    Read = 200,
-    Write = 300,
-    Close = 400,
-    Lseek = 500,
-    Pipe = 600,
-    Sbrk = 700,
-    Exit = 800,
-    Fork = 900,
-    Wait = 1000,
-    Dup2 = 1200,
-    Chdir = 1300,
-    Mkdir = 1400,
-}
 
 pub fn stdout<'a>(text: &'a str) {
     let chars = text.as_bytes();
@@ -69,8 +52,6 @@ pub fn stdout<'a>(text: &'a str) {
 }
 
 pub fn handle(state: &GlobalState) {
-    let syscall_no: usize;
-
     if let Some(locked_process) = state.get_current_process() {
         let trapframe;
 
@@ -78,25 +59,24 @@ pub fn handle(state: &GlobalState) {
         trapframe = process.trapframe;
         drop(process);
 
+        let args;
         unsafe {
-            syscall_no = (*trapframe).a7;
+            args = ARCH::handle_syscall(trapframe);
 
             // sepc holds the program counter value at the point of trap
             // But when the trap is due to a system call, we need to execute the next instruction
-            (*trapframe).sepc += 4;
 
-            riscv::interrupt::supervisor::enable();
+            state.enable_interrupts();
         }
 
         for (no, handler) in SYSCALLS {
-            if syscall_no == no as usize {
-                unsafe {
-                    let return_value = handler(state, &*trapframe);
-                    let process = locked_process.lock();
-                    let trapframe = process.trapframe;
+            if args.0 == no as usize {
+                let return_value = handler(state, args);
+                let process = locked_process.lock();
+                let trapframe = process.trapframe;
 
-                    (*trapframe).a0 = return_value;
-                }
+                TrapFrame::set_return_value_after_syscall(trapframe, return_value);
+
                 return;
             }
         }
@@ -108,7 +88,7 @@ pub fn handle(state: &GlobalState) {
     }
 }
 
-pub fn pipe(state: &GlobalState, trapframe: &TrapFrame) -> usize {
+pub fn pipe(state: &GlobalState, args: SyscallArgs) -> usize {
     let current_process = state.get_current_process().unwrap();
     let current_process = current_process.lock();
 
@@ -121,7 +101,7 @@ pub fn pipe(state: &GlobalState, trapframe: &TrapFrame) -> usize {
 
     let fds = unsafe {
         &mut *slice_from_raw_parts_mut(
-            translate_virtual_address(state, trapframe.page_table, trapframe.a0).unwrap()
+            translate_virtual_address(state, current_process.page_table, args.1).unwrap()
                 as *mut c_int,
             2,
         )
@@ -133,18 +113,21 @@ pub fn pipe(state: &GlobalState, trapframe: &TrapFrame) -> usize {
     0
 }
 
-pub fn sbrk(state: &GlobalState, trapframe: &TrapFrame) -> usize {
+pub fn sbrk(state: &GlobalState, args: SyscallArgs) -> usize {
     enum Error {
         ENOMEM = 12,
     }
-    let increment = trapframe.a0 as isize;
+    let increment = args.1 as isize;
+
+    let current_process = state.get_current_process().unwrap();
+    let current_process = current_process.lock();
 
     if increment == 0 {
-        trapframe.brk.get()
+        current_process.brk
     } else if increment < 0 {
         panic!("NEGATIVE INCREMENT NOT ALLOWED YET!")
     } else {
-        match vm::allocate_heap(state, increment, trapframe) {
+        match vm::allocate_heap(state, increment, current_process) {
             Ok(old_brk) => old_brk,
             Err(e)
                 if matches!(
@@ -159,9 +142,9 @@ pub fn sbrk(state: &GlobalState, trapframe: &TrapFrame) -> usize {
     }
 }
 
-pub fn dup2(_: &GlobalState, trapframe: &TrapFrame) -> usize {
-    let fd1 = trapframe.a0;
-    let fd2 = trapframe.a1;
+pub fn dup2(_: &GlobalState, args: SyscallArgs) -> usize {
+    let fd1 = args.1;
+    let fd2 = args.2;
 
     if fd1 == fd2 {
         return fd2;

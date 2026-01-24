@@ -6,8 +6,8 @@ use anyhow::{Result, bail};
 #[cfg(target_arch = "riscv64")]
 use crate::vm::constants::NUMBER_OF_PAGE_TABLE_ENTRIES_PER_PAGE;
 use crate::{
+    constants::{MAX_VA, NUMBER_OF_LEVELS, PAGE_SIZE},
     error::Error,
-    vm::constants::{MAX_VA, NUMBER_OF_LEVELS, PAGE_SIZE},
 };
 
 pub trait VirtualMemory<T: PageTableEntry> {
@@ -31,6 +31,7 @@ pub trait VirtualMemory<T: PageTableEntry> {
     ) -> Result<()>;
     fn va2pa(&self, page_table: *mut PageTable<T>, va: usize) -> Result<usize>;
     fn clean_up_page_table(&self, page_table: *mut PageTable<T>) -> Result<()>;
+    fn enable_paging(page_table: usize);
 }
 
 pub trait PageTableEntry: Copy + Debug {
@@ -116,9 +117,11 @@ impl<T: PageTableEntry> PageTable<T> {
 }
 
 #[cfg(target_arch = "riscv64")]
-pub mod constants {
+pub(crate) mod constants {
     pub const NUMBER_OF_PAGE_TABLE_ENTRIES_PER_PAGE: usize = 512;
     pub const MAX_VA: usize = 0xffffffffffffffff;
     pub const NUMBER_OF_LEVELS: usize = 4;
     pub const PAGE_SIZE: usize = 0x1000;
+    pub const TRAMPOLINE: usize = 0xfffffffffffff000;
+    pub const TRAPFRAME: usize = TRAMPOLINE - PAGE_SIZE;
 }

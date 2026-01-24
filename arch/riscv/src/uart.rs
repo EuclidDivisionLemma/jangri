@@ -1,10 +1,11 @@
 use core::{
-    cell::LazyCell,
     ptr::{read_volatile, write_volatile},
+    sync::atomic::{AtomicBool, AtomicUsize},
 };
 
-use alloc::vec::Vec;
 use ringbuffer::{AllocRingBuffer, RingBuffer};
+
+use crate::Mutex;
 
 pub const UART0: usize = 0x10000000;
 
@@ -18,11 +19,11 @@ pub const FCR: usize = 2; // FIFO Control Register
 pub const DIVISOR_LATCH_HIGH: usize = 1; // Divisor Latch High Byte
 pub const DIVISOR_LATCH_LOW: usize = 0; // Divisor Latch Low Byte
 
-static mut TX_BUSY: bool = false;
-static mut CURSOR_POSITION: usize = 0;
+static TX_BUSY: AtomicBool = AtomicBool::new(false);
+static CURSOR_POSITION: AtomicUsize = AtomicUsize::new(0);
 
-pub static mut INPUT_BUFFER: LazyCell<AllocRingBuffer<u8>> =
-    LazyCell::new(|| AllocRingBuffer::new(4096));
+pub static INPUT_BUFFER: spin::Lazy<Mutex<AllocRingBuffer<u8>>> =
+    spin::Lazy::new(|| Mutex::new(AllocRingBuffer::new(4096)));
 
 pub static mut READ: bool = false;
 
@@ -53,13 +54,11 @@ pub fn initialise_uart() {
 }
 
 pub fn write_char(byte: u8) {
-    while unsafe { TX_BUSY == true } {
+    while TX_BUSY.load(core::sync::atomic::Ordering::Acquire) == true {
         core::hint::spin_loop();
     }
 
-    unsafe {
-        TX_BUSY = true;
-    }
+    TX_BUSY.store(true, core::sync::atomic::Ordering::Release);
 
     write(THR, byte);
 }
@@ -106,9 +105,7 @@ pub fn handle_interrupt() {
     read(ISR);
 
     if read(LSR) & (1 << 5) != 0 {
-        unsafe {
-            TX_BUSY = false;
-        }
+        TX_BUSY.store(false, core::sync::atomic::Ordering::Release);
     }
 
     {
@@ -120,32 +117,27 @@ pub fn handle_interrupt() {
                             write_char_waiting('\n' as u8);
                             write_char_waiting('\r' as u8);
 
-                            unsafe {
-                                INPUT_BUFFER.enqueue('\n' as u8);
-                            }
+                            let mut input_buffer = INPUT_BUFFER.lock();
+                            input_buffer.enqueue('\n' as u8);
                         } else if v == 0x7f || v == 0x08 {
-                            if unsafe { CURSOR_POSITION } > 0 {
+                            if CURSOR_POSITION.load(core::sync::atomic::Ordering::Acquire) > 0 {
                                 write_char_waiting(0x08);
                                 write_char_waiting(' ' as u8);
                                 write_char_waiting(0x08);
 
-                                unsafe {
-                                    INPUT_BUFFER.enqueue(v);
-                                }
+                                let mut input_buffer = INPUT_BUFFER.lock();
+                                input_buffer.enqueue(v);
 
-                                unsafe {
-                                    CURSOR_POSITION -= 1;
-                                }
+                                let _ = CURSOR_POSITION
+                                    .fetch_sub(1, core::sync::atomic::Ordering::AcqRel);
                             }
                         } else {
                             write_char(v);
-                            unsafe {
-                                CURSOR_POSITION += 1;
-                            }
+                            let _ =
+                                CURSOR_POSITION.fetch_add(1, core::sync::atomic::Ordering::AcqRel);
 
-                            unsafe {
-                                INPUT_BUFFER.enqueue(v);
-                            }
+                            let mut input_buffer = INPUT_BUFFER.lock();
+                            input_buffer.enqueue(v as u8);
                         }
                     }
                 }

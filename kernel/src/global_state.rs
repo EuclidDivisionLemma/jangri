@@ -1,21 +1,18 @@
-use alloc::format;
-use alloc::{boxed::Box, collections::btree_map::BTreeMap, rc::Rc, sync::Arc};
-use allocator::{ALLOC, PageAllocator};
+use alloc::{collections::btree_map::BTreeMap, rc::Rc, sync::Arc};
+use allocator::PageAllocator;
 use anyhow::{Result, bail};
-use hal::vm::constants::PAGE_SIZE;
+use hal::Hal;
+use hal::constants::PAGE_SIZE;
+use hal::interrupts::InterruptHandling;
 use hal::vm::{PageTable, VirtualMemory};
-use hal::{Hal, vm::PageTableEntry};
-use riscv_arch::Riscv;
 
-use crate::constants::END_OF_KERNEL_TEXT;
-use crate::syscall::stdout;
+use crate::traps::initialise_global_state_for_trap_handlers;
 use crate::{
     ARCH, Mutex, PAGE_TABLE_ENTRY, RwLock,
     constants::{KERNEL_END, RAM_STOP},
     fs::sfs::MemoryINode,
-    process::{Process, ProcessState, are_interrupts_enabled},
+    process::{Process, ProcessState},
     scheduler::Context,
-    traps::initialise_global_state_for_trap_handlers,
 };
 
 pub struct GlobalState {
@@ -44,18 +41,18 @@ impl GlobalState {
             processes: RwLock::new(BTreeMap::new()),
             current_process: Mutex::new(None),
             scheduler_context: Context::default(),
-            arch: Mutex::new(ARCH {
-                allocate: Arc::new(move |size| {
+            arch: Mutex::new(ARCH::new(
+                Arc::new(move |size| {
                     let mut allocator = allocator0.lock();
                     assert!(size.is_power_of_two() && size >= PAGE_SIZE);
 
                     allocator.allocate(size)
                 }),
-                deallocate: Arc::new(move |addr, size| {
+                Arc::new(move |addr, size| {
                     let mut allocator = allocator1.lock();
                     allocator.deallocate(addr, size)
                 }),
-            }),
+            )),
         };
 
         initialise_global_state_for_trap_handlers(state)
@@ -147,5 +144,15 @@ impl GlobalState {
         )?;
 
         Ok(())
+    }
+
+    pub unsafe fn enable_interrupts(&self) {
+        unsafe {
+            ARCH::enable_interrupts();
+        }
+    }
+
+    pub fn disable_interrupts(&self) {
+        ARCH::disable_interrupts();
     }
 }

@@ -4,6 +4,7 @@
 
 extern crate alloc;
 
+use core::ops::Fn;
 use core::ops::{BitAndAssign, BitOrAssign, Not};
 
 use alloc::sync::Arc;
@@ -14,6 +15,7 @@ use crate::{
     vm::{PageTableEntry, VirtualMemory},
 };
 
+pub mod constants;
 mod cpu;
 pub mod error;
 pub mod interrupts;
@@ -31,6 +33,7 @@ pub trait Hal<T: PageTableEntry>: VirtualMemory<T> + InterruptHandling {
     fn number_of_harts() -> usize;
     fn get_hart_id() -> usize;
     fn nesting_level() -> usize;
+    fn get_trampoline_offset() -> usize;
 }
 
 #[inline(always)]

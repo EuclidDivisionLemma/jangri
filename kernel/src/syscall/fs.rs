@@ -1,4 +1,5 @@
 use alloc::{format, string::ToString};
+use hal::interrupts::SyscallArgs;
 
 use crate::{
     file::create_file,
@@ -7,17 +8,15 @@ use crate::{
 };
 use core::ffi::{CStr, c_char};
 
-use crate::{
-    file::traverse_path, syscall::io::Error, traps::TrapFrame, vm::translate_virtual_address,
-};
+use crate::{file::traverse_path, syscall::io::Error, vm::translate_virtual_address};
 
-pub fn chdir(state: &GlobalState, trapframe: &TrapFrame) -> usize {
+pub fn chdir(state: &GlobalState, args: SyscallArgs) -> usize {
     let process = state.get_current_process().unwrap();
     let mut current_process = process.lock();
 
     let path = unsafe {
         CStr::from_ptr(
-            translate_virtual_address(state, trapframe.page_table, trapframe.a0).unwrap()
+            translate_virtual_address(state, current_process.page_table, args.1).unwrap()
                 as *const c_char,
         )
         .to_str()
@@ -54,7 +53,7 @@ pub fn chdir(state: &GlobalState, trapframe: &TrapFrame) -> usize {
     0
 }
 
-pub fn mkdir(state: &GlobalState, trapframe: &TrapFrame) -> usize {
+pub fn mkdir(state: &GlobalState, args: SyscallArgs) -> usize {
     let process = state.get_current_process().unwrap();
     let current_process = process.lock();
 
@@ -62,7 +61,7 @@ pub fn mkdir(state: &GlobalState, trapframe: &TrapFrame) -> usize {
 
     let path = unsafe {
         CStr::from_ptr(
-            translate_virtual_address(state, trapframe.page_table, trapframe.a0).unwrap()
+            translate_virtual_address(state, current_process.page_table, args.1).unwrap()
                 as *const c_char,
         )
         .to_str()

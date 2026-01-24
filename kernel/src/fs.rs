@@ -1,15 +1,16 @@
 use core::ptr;
 
+use hal::interrupts::SyscallArgs;
+
 use crate::constants::KERNEL_PAGE_TABLE;
 use crate::drivers::Storage;
-use crate::file::{self, create_file};
+use crate::file::{self, FILES, FileType, create_file};
 use crate::fs::sfs::{
     DirectoryEntry, FILE_NAME_SIZE, InodeEntry, flush_data_blocks, read_inode, write_inode,
     write_inode_data,
 };
 use crate::global_state::GlobalState;
 use crate::sfs::allocate_inode;
-use crate::traps::TrapFrame;
 use crate::vm::SUPERVISOR;
 use crate::{DEVICE, INIT, syscall};
 pub mod caching;
@@ -47,22 +48,20 @@ pub fn initialise(state: &GlobalState) {
     // Copy sh.elf to /sh
     let fd = file::open(state, "sh", true, true, true, true, false, false).unwrap();
 
-    let mut mock_traptrame = TrapFrame::default();
-    mock_traptrame.a0 = fd;
-    mock_traptrame.a1 = INIT.as_ptr().addr();
-    mock_traptrame.page_table = unsafe { KERNEL_PAGE_TABLE };
-    mock_traptrame.a2 = INIT.len();
+    let file = unsafe { FILES.get(&fd).unwrap() };
 
-    unsafe {
-        SUPERVISOR = true;
-    }
+    let file_type = &*file.file_type.borrow();
 
-    syscall::io::write(state, &mock_traptrame);
-    syscall::io::close(state, &mock_traptrame);
+    let inode = match file_type {
+        FileType::INode {
+            inode,
+            offset: _,
+            append: _,
+        } => inode,
+        _ => panic!(),
+    };
 
-    unsafe {
-        SUPERVISOR = false;
-    }
+    write_inode_data(&inode, 0, INIT.to_vec(), &DEVICE);
 }
 
 pub fn initialise_root(device: &'static dyn Storage) {

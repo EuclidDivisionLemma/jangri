@@ -4,7 +4,6 @@ use core::cell::Cell;
 use core::cell::RefCell;
 use ringbuffer::RingBuffer;
 
-use crate::ARCH;
 use crate::error::Error;
 use crate::global_state::GlobalState;
 use alloc::vec;
@@ -66,7 +65,7 @@ impl Pipe {
             while let Some(_) = self.data.borrow_mut().enqueue(buffer[i])
                 && self.read_end_open.get()
             {
-                riscv::interrupt::supervisor::disable();
+                state.disable_interrupts();
 
                 if let Some(process) = state.get_current_process() {
                     let mut process = process.lock();

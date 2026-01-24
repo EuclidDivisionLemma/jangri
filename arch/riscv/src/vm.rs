@@ -1,14 +1,14 @@
+use core::arch::asm;
+
 use alloc::sync::Arc;
-use anyhow::{Result, bail};
+use anyhow::bail;
 
 mod pte;
 
 use hal::{
+    constants::{NUMBER_OF_PAGE_TABLE_ENTRIES_PER_PAGE, PAGE_SIZE},
     error::Error,
-    vm::{
-        PageTable, PageTableEntry as PageTableEntryTrait, VirtualMemory,
-        constants::{NUMBER_OF_PAGE_TABLE_ENTRIES_PER_PAGE, PAGE_SIZE},
-    },
+    vm::{PageTable, PageTableEntry as PageTableEntryTrait, VirtualMemory},
 };
 
 pub use crate::{Riscv, vm::pte::PageTableEntry};
@@ -135,6 +135,14 @@ impl VirtualMemory<PageTableEntry> for Riscv {
 
         (self.deallocate)(page_table as usize, PAGE_SIZE);
         Ok(())
+    }
+
+    fn enable_paging(page_table: usize) {
+        unsafe {
+            asm!("sfence.vma");
+            riscv::register::satp::set(riscv::register::satp::Mode::Sv48, 0, page_table >> 12);
+            asm!("sfence.vma");
+        }
     }
 }
 

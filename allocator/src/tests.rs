@@ -167,7 +167,7 @@ fn test_allocator() {
 
     allocator.deallocate(one_hundred_twenty_eight_pages.addr(), 128 * PAGE_SIZE);
 
-    let some_more_pages = allocator.allocate(3 * PAGE_SIZE).unwrap() as *mut usize;
+    let some_more_pages = allocator.allocate(4 * PAGE_SIZE).unwrap() as *mut usize;
     unsafe {
         *some_more_pages = 983645;
         assert_eq!(*some_more_pages, 983645);

@@ -9,7 +9,7 @@ extern crate alloc;
 use anyhow::{Result, bail};
 
 use crate::{
-    ALLOC, PAGE_SIZE,
+    PAGE_SIZE,
     linked_list::{LinkedList, MAGIC_1, MAGIC_2, Node, generate_node_id},
 };
 
@@ -100,6 +100,18 @@ impl PageAllocator {
         // The caller must ensure that the size is a power of two.
         // This prevents a non-power-of-two size from being passed
         // inadvertantly, causing a larger size to be allocated.
+
+        if !size.is_power_of_two() {
+            bail!("Allocation Error: Size ({}) is not a power of two", size);
+        }
+
+        if size < PAGE_SIZE {
+            bail!(
+                "Allocation Error: Size ({}) is less than minimum allocable size (4096)",
+                size
+            );
+        }
+
         assert!(size.is_power_of_two() && size >= PAGE_SIZE);
 
         if size < MIN_ALLOC {

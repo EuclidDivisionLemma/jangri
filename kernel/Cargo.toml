@@ -5,7 +5,6 @@ edition = "2024"
 
 [dependencies]
 ringbuffer = "0.16.0"
-riscv.workspace = true
 allocator.workspace = true
 anyhow.workspace = true
 talc = "4.4.3"
