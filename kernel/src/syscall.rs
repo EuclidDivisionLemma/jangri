@@ -1,11 +1,5 @@
-use core::{
-    arch::asm,
-    ffi::{CStr, c_int},
-    ptr::{self, slice_from_raw_parts_mut, write_volatile},
-    slice,
-};
+use core::{arch::asm, ffi::c_int, ptr::write_volatile, slice};
 
-use alloc::format;
 use hal::{
     constants::PAGE_SIZE,
     interrupts::{InterruptHandling, Syscall, SyscallArgs, TrapFrame},
@@ -16,7 +10,6 @@ use riscv_arch::uart::{self, INPUT_BUFFER};
 use crate::{
     ARCH,
     constants::TRAMPOLINE,
-    error::Error,
     global_state::GlobalState,
     pipe::allocate_pipe,
     process::{self, ProcessState},
@@ -78,11 +71,8 @@ pub fn write(state: &GlobalState, args: SyscallArgs) -> usize {
         let buf = unsafe { slice::from_raw_parts(ptr as *const u8, num_bytes) };
         drop(current_process);
 
-        if let Err(e) = pipe.write(state, buf) {
-            match e.downcast_ref().unwrap() {
-                Error::PipeWriterClosed | Error::PipeReaderClosed => return -EPIPE as usize,
-                _ => panic!(),
-            }
+        if let Err(_) = pipe.write(state, buf) {
+            return -EPIPE as usize;
         }
     }
     num_bytes

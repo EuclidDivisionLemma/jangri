@@ -1,4 +1,4 @@
-use core::{arch::global_asm, cell::LazyCell};
+use core::arch::global_asm;
 use hal::interrupts::InterruptHandling;
 
 use crate::{ARCH, global_state::GlobalState, process::ProcessState};

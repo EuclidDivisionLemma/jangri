@@ -1,29 +1,17 @@
 use crate::{
     ARCH, Mutex, PAGE_TABLE_ENTRY, TrapFrame,
     constants::{
-        KERNEL_PAGE_TABLE, MAXIMUM_PROCESS, STACK_PAGES, STACK_START, Sv48, TRAMPOLINE,
-        TRAMPOLINE_CODE_ADDRESS, TRAMPOLINE_OFFSET, TRAPFRAME,
+        KERNEL_PAGE_TABLE, STACK_PAGES, STACK_START, Sv48, TRAMPOLINE, TRAMPOLINE_CODE_ADDRESS,
+        TRAMPOLINE_OFFSET, TRAPFRAME,
     },
-    error::Error,
     global_state::GlobalState,
     scheduler::{Context, switch_to_scheduler_context},
-    syscall::stdout,
     traps::{self, set_up_supervisor_to_user_mode_transition, user_trap},
-    vm::{self, drop_pages, kernel_stack_address},
+    vm::kernel_stack_address,
 };
-use alloc::{
-    alloc::dealloc,
-    boxed::Box,
-    collections::btree_map::BTreeMap,
-    format,
-    rc::Rc,
-    string::String,
-    sync::{Arc, Weak},
-    vec::Vec,
-};
+use alloc::{boxed::Box, format, sync::Arc};
 use anyhow::Result;
 use core::{
-    arch::asm,
     fmt::Debug,
     mem::transmute,
     ptr::{self, null_mut},
@@ -36,6 +24,7 @@ pub enum ProcessState {
     Ready,
     Running,
     Terminated {
+        #[allow(unused)]
         return_value: core::result::Result<isize, Box<dyn Debug>>,
     },
     NotUsed,
@@ -121,7 +110,7 @@ pub fn assign_process(state: &'static GlobalState) -> Result<Arc<Mutex<Process>>
         (*trapframe).page_table = page_table;
         (*trapframe).satp = Sv48 | page_table >> 12;
         (*trapframe).kernel_page_table = Sv48 | (KERNEL_PAGE_TABLE >> 12);
-        (*trapframe).user_trap_address = user_trap as usize;
+        (*trapframe).user_trap_address = user_trap as fn() as usize;
     }
 
     drop(process);
@@ -161,7 +150,6 @@ pub fn map_code_pages(
 pub fn map_other_pages(
     state: &GlobalState,
     page_table: usize,
-    final_code: usize,
     process: &mut MutexGuard<sync::RawMutex<PAGE_TABLE_ENTRY, ARCH>, Process>,
 ) -> Result<()> {
     let stack = state.allocate(STACK_PAGES * PAGE_SIZE).unwrap();
@@ -290,13 +278,8 @@ pub fn start_process(state: &'static GlobalState, bin: &[u8], name: &str) {
         panic!("PANIC: INIT FAILED - ELF CONTAINS NO LOADABLE SEGMENT");
     }
 
-    map_other_pages(
-        state,
-        process.page_table,
-        max_code_page_end_va,
-        &mut process,
-    )
-    .expect("INIT FAILED - ERROR WHILE MAPPING PAGES");
+    map_other_pages(state, process.page_table, &mut process)
+        .expect("INIT FAILED - ERROR WHILE MAPPING PAGES");
 
     let trapframe = process.trapframe;
 

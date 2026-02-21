@@ -1,7 +1,7 @@
 use core::mem::transmute;
 use hal::interrupts::InterruptHandling;
 
-use alloc::{boxed::Box, format, string::ToString};
+use alloc::{boxed::Box, format};
 use anyhow::Result;
 
 use spin::Once;

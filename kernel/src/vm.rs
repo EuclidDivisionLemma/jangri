@@ -2,8 +2,8 @@ use crate::{
     ARCH, PAGE_TABLE_ENTRY,
     constants::{
         END_OF_KERNEL_TEXT, KERNEL_PAGE_TABLE, KERNEL_START, MAXIMUM_PROCESS, PLIC, PLIC_SIZE,
-        RAM_STOP, STACK_PAGES, STACK_START, TRAMPOLINE, TRAMPOLINE_CODE_ADDRESS, TRAPFRAME, UART0,
-        VIRTIO_MMIO_DISK, VIRTIO_MMIO_DISK_SIZE,
+        RAM_STOP, TRAMPOLINE, TRAMPOLINE_CODE_ADDRESS, UART0, VIRTIO_MMIO_DISK,
+        VIRTIO_MMIO_DISK_SIZE,
     },
     global_state::GlobalState,
 };
@@ -126,23 +126,4 @@ pub fn map_kernel_stack(state: &GlobalState) {
                 .unwrap()
         }
     }
-}
-
-/// Completely deallocates any pages of the page table and any pages pointed to by the page table.
-/// The function first unmaps the pages, deallocating if necessary, and after all pages pointed to by
-/// leaf page-table entries have been deallocated, the function deallocates the pages of the page table entries
-/// themselves.
-pub fn drop_pages(state: &GlobalState, page_table: usize, heap_end: usize) -> Result<()> {
-    // unmap and deallocate PT_LOAD pages and heap pages
-    state.unmap(page_table, 0, heap_end / PAGE_SIZE, true)?;
-
-    state.unmap(page_table, STACK_START, STACK_PAGES, true)?;
-
-    state.unmap(page_table, TRAPFRAME, 1, true)?;
-
-    state.unmap(page_table, TRAMPOLINE, 1, false)?;
-
-    state.cleanup_page_table(page_table)?;
-
-    Ok(())
 }

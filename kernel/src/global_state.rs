@@ -1,8 +1,5 @@
-use core::mem::forget;
-use core::sync::atomic::AtomicUsize;
-
 use alloc::collections::linked_list::LinkedList;
-use alloc::{collections::btree_map::BTreeMap, rc::Rc, sync::Arc};
+use alloc::{collections::btree_map::BTreeMap, sync::Arc};
 use allocator::PageAllocator;
 use anyhow::{Result, bail};
 use hal::Hal;
@@ -188,6 +185,7 @@ impl GlobalState {
         arch.va2pa(page_table as *mut PageTable<PAGE_TABLE_ENTRY>, va)
     }
 
+    #[allow(unused)]
     pub fn unmap(
         &self,
         page_table: usize,

@@ -1,5 +1,3 @@
-use core::num::NonZeroUsize;
-
 use hal::constants::PAGE_SIZE;
 
 pub const TIME_SLICE: usize = 100000;
@@ -11,9 +9,6 @@ pub static mut KERNEL_START: usize = 0;
 pub const KERNEL_HEAP_SIZE: usize = 524288000;
 
 pub const STACK_START: usize = TRAMPOLINE - 10 * PAGE_SIZE;
-
-pub const MAX_VA: usize = 0xffffffffffffffff;
-pub const VALID_BIT: usize = 1;
 
 #[allow(non_upper_case_globals)]
 pub const Sv48: usize = 9 << 60;
@@ -39,5 +34,3 @@ pub const RAM_STOP: usize = 0x80000000 + 0x100000000;
 pub const STACK_PAGES: usize = 8;
 
 pub static mut TRAMPOLINE_OFFSET: usize = 0;
-
-pub const ROOT_INODE: NonZeroUsize = unsafe { NonZeroUsize::new_unchecked(1) };

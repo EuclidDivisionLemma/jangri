@@ -2,19 +2,16 @@
 #![no_main]
 #![allow(static_mut_refs)]
 
-use core::arch::global_asm;
 use hal::interrupts::InterruptHandling;
 
 use crate::{
     constants::{
-        END_OF_KERNEL_TEXT, KERNEL_END, KERNEL_HEAP_SIZE, KERNEL_PAGE_TABLE, KERNEL_START,
-        TRAMPOLINE_CODE_ADDRESS, TRAMPOLINE_OFFSET,
+        END_OF_KERNEL_TEXT, KERNEL_END, KERNEL_START, TRAMPOLINE_CODE_ADDRESS, TRAMPOLINE_OFFSET,
     },
     global_state::GlobalState,
     process::start_process,
     scheduler::schedule,
     syscall::stdout,
-    traps::initialise,
     vm::{align_to_page_size, enable_paging, initialise_kernel_page_table},
 };
 
