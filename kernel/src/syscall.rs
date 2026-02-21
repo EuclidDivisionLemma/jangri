@@ -59,9 +59,10 @@ pub fn write(state: &GlobalState, args: SyscallArgs) -> usize {
     let ptr = translate_virtual_address(state, current_process.page_table, args.2).unwrap();
 
     if fd == 1 || fd == 2 {
-        let text = unsafe { CStr::from_ptr(ptr as *const u8).to_str().unwrap() };
-        num_bytes = text.len();
-        uart::console_write(text);
+        let bytes = unsafe { slice::from_raw_parts(ptr as *const u8, num_bytes) };
+
+        num_bytes = bytes.len();
+        uart::console_write_bytes(bytes);
     } else {
         let pipes = state.pipes.read();
         let pipe = match pipes.get(&fd) {
@@ -145,8 +146,6 @@ fn read(state: &GlobalState, args: SyscallArgs) -> usize {
                     }
                 }
             }
-
-            drop(input_buffer);
         }
         read
     } else {

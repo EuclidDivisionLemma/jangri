@@ -32,7 +32,8 @@ mod vm;
 
 extern crate alloc;
 
-pub const INIT: &[u8] = include_bytes!("../../userspace/init.elf");
+pub const PROCESS1: &[u8] = include_bytes!("../../userspace/process1.elf");
+pub const PROCESS2: &[u8] = include_bytes!("../../userspace/process2.elf");
 
 #[cfg(target_arch = "riscv64")]
 pub type ARCH = riscv_arch::Riscv;
@@ -84,7 +85,8 @@ fn main() -> ! {
 
     stdout("\x1b[2J\x1b[HJangri v0.0.1\n");
 
-    start_process(state, INIT, "init");
+    start_process(state, PROCESS1, "process1");
+    start_process(state, PROCESS2, "process2");
 
     schedule(state);
 }
