@@ -16,13 +16,12 @@ int main()
 {
     for (;;)
     {
-        printf("Process 2\n");
+        printf("\nProcess 2\n");
         int* x = malloc(sizeof(int));
         printf("Enter a number: ");
         scanf("%d", x);
         int fact = factorial(*x);
         printf("The factorial of %d is %d\n", *x, fact);
-        printf("\n");
         free(x);
     }
 }

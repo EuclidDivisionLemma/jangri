@@ -1,3 +1,7 @@
+use core::mem::forget;
+use core::sync::atomic::AtomicUsize;
+
+use alloc::collections::linked_list::LinkedList;
 use alloc::{collections::btree_map::BTreeMap, rc::Rc, sync::Arc};
 use allocator::PageAllocator;
 use anyhow::{Result, bail};
@@ -18,6 +22,7 @@ use crate::{
 pub struct GlobalState {
     allocator: Arc<Mutex<PageAllocator>>,
     processes: RwLock<BTreeMap<usize, Arc<Mutex<Process>>>>,
+    pids: Mutex<LinkedList<usize>>,
     current_process: Mutex<Option<Arc<Mutex<Process>>>>,
     pub scheduler_context: Context,
     arch: Mutex<ARCH>,
@@ -40,6 +45,7 @@ impl GlobalState {
         let state = GlobalState {
             allocator: allocator1.clone(),
             processes: RwLock::new(BTreeMap::new()),
+            pids: Mutex::new(LinkedList::new()),
             current_process: Mutex::new(None),
             scheduler_context: Context::default(),
             arch: Mutex::new(ARCH::new(
@@ -73,6 +79,9 @@ impl GlobalState {
     pub fn add_process(&self, id: usize, process: Arc<Mutex<Process>>) {
         let mut processes = self.processes.write();
         processes.insert(id, process);
+
+        let mut pids = self.pids.lock();
+        pids.push_back(id);
     }
 
     pub fn get_current_process(&self) -> Option<Arc<Mutex<Process>>> {
@@ -89,12 +98,23 @@ impl GlobalState {
 
     pub fn find_ready_process(&self) -> Option<usize> {
         let processes = self.processes.read();
+        let mut pids = self.pids.lock();
 
-        for (pid, process) in processes.iter() {
-            let process = process.lock();
+        for _ in 0..pids.len() {
+            let pid = pids.pop_front();
 
-            if let ProcessState::Ready = &process.process_state {
-                return Some(*pid);
+            match pid {
+                Some(pid) => {
+                    pids.push_back(pid);
+
+                    let process = processes.get(&pid).unwrap();
+                    let process = process.lock();
+
+                    if let ProcessState::Ready = process.process_state {
+                        return Some(pid);
+                    }
+                }
+                None => return None,
             }
         }
 
