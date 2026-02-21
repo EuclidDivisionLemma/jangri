@@ -16,18 +16,26 @@ use riscv_arch::uart::{self, INPUT_BUFFER};
 use crate::{
     ARCH,
     constants::TRAMPOLINE,
+    error::Error,
     global_state::GlobalState,
-    process::ProcessState,
+    pipe::allocate_pipe,
+    process::{self, ProcessState},
     scheduler::switch_to_scheduler_context,
     vm::{self, translate_virtual_address},
 };
 
-pub const SYSCALLS: [(Syscall, fn(&GlobalState, SyscallArgs) -> usize); 4] = [
+pub const SYSCALLS: [(Syscall, fn(&GlobalState, SyscallArgs) -> usize); 6] = [
     (Syscall::Read, read),
     (Syscall::Write, write),
     (Syscall::Sbrk, sbrk),
+    (Syscall::Pipe, pipe),
     (Syscall::Exit, exit),
+    (Syscall::Close, close),
 ];
+
+const ENXIO: isize = 6;
+const EBADF: isize = 9;
+const EPIPE: isize = 32;
 
 pub fn stdout<'a>(text: &'a str) {
     let chars = text.as_bytes();
@@ -43,19 +51,41 @@ pub fn stdout<'a>(text: &'a str) {
 }
 
 pub fn write(state: &GlobalState, args: SyscallArgs) -> usize {
-    let ptr = args.2;
+    let fd = args.1;
+    let mut num_bytes = args.3;
     let current_process = state.get_current_process().unwrap();
     let current_process = current_process.lock();
 
-    let text = unsafe {
-        CStr::from_ptr(
-            translate_virtual_address(state, current_process.page_table, ptr).unwrap() as *const u8,
-        )
-        .to_str()
-        .unwrap()
-    };
-    uart::console_write(text);
-    0
+    let ptr = translate_virtual_address(state, current_process.page_table, args.2).unwrap();
+
+    if fd == 1 || fd == 2 {
+        let text = unsafe { CStr::from_ptr(ptr as *const u8).to_str().unwrap() };
+        num_bytes = text.len();
+        uart::console_write(text);
+    } else {
+        let pipes = state.pipes.read();
+        let pipe = match pipes.get(&fd) {
+            Some(pipe) => pipe,
+            None => return -ENXIO as usize,
+        };
+
+        let mut pipe = pipe.lock();
+
+        if fd == pipe.reader {
+            return -EBADF as usize;
+        }
+
+        let buf = unsafe { slice::from_raw_parts(ptr as *const u8, num_bytes) };
+        drop(current_process);
+
+        if let Err(e) = pipe.write(state, buf) {
+            match e.downcast_ref().unwrap() {
+                Error::PipeWriterClosed | Error::PipeReaderClosed => return -EPIPE as usize,
+                _ => panic!(),
+            }
+        }
+    }
+    num_bytes
 }
 
 pub fn handle(state: &GlobalState) {
@@ -69,10 +99,6 @@ pub fn handle(state: &GlobalState) {
         let args;
         unsafe {
             args = ARCH::handle_syscall(trapframe);
-
-            // sepc holds the program counter value at the point of trap
-            // But crate::process::when the trap is due to a system call, we need to execute the next instruction
-
             state.enable_interrupts();
         }
 
@@ -98,30 +124,51 @@ pub fn handle(state: &GlobalState) {
 fn read(state: &GlobalState, args: SyscallArgs) -> usize {
     let current_process = state.get_current_process().unwrap();
     let num_bytes = args.3;
+    let fd = args.1;
 
     let buf = translate_virtual_address(state, current_process.lock().page_table, args.2).unwrap()
         as *mut u8;
 
     let mut read = 0;
 
-    while read < num_bytes {
-        let mut input_buffer = INPUT_BUFFER.lock();
+    if fd == 0 {
+        while read < num_bytes {
+            let mut input_buffer = INPUT_BUFFER.lock();
 
-        if let Some(byte) = input_buffer.dequeue() {
-            unsafe {
-                write_volatile(buf.add(read), byte);
-                read += 1;
+            if let Some(byte) = input_buffer.dequeue() {
+                unsafe {
+                    write_volatile(buf.add(read), byte);
+                    read += 1;
 
-                if byte == '\n' as u8 || byte == '\r' as u8 {
-                    break;
+                    if byte == '\n' as u8 || byte == '\r' as u8 {
+                        break;
+                    }
                 }
             }
+
+            drop(input_buffer);
         }
+        read
+    } else {
+        let pipes = state.pipes.read();
 
-        drop(input_buffer);
+        if let Some(pipe) = pipes.get(&fd) {
+            let mut pipe = pipe.lock();
+
+            if fd != pipe.reader {
+                return -ENXIO as usize;
+            }
+
+            let bytes = pipe.read(state, num_bytes);
+            unsafe {
+                buf.copy_from(bytes.as_ptr(), num_bytes);
+            }
+
+            num_bytes
+        } else {
+            -ENXIO as usize
+        }
     }
-
-    read
 }
 
 pub fn sbrk(state: &GlobalState, args: SyscallArgs) -> usize {
@@ -173,6 +220,62 @@ fn exit(state: &GlobalState, args: SyscallArgs) -> usize {
     };
     drop(current_process);
     switch_to_scheduler_context(state);
+
+    0
+}
+
+fn pipe(state: &GlobalState, args: SyscallArgs) -> usize {
+    let current_process = state.get_current_process().unwrap();
+    let current_process = current_process.lock();
+
+    let reader_address =
+        translate_virtual_address(state, current_process.page_table, args.1).unwrap() as *mut c_int;
+
+    let writer_address = translate_virtual_address(
+        state,
+        current_process.page_table,
+        args.1 + size_of::<c_int>(),
+    )
+    .unwrap() as *mut c_int;
+
+    let pipe = allocate_pipe(state);
+    let pipe = pipe.lock();
+
+    unsafe {
+        write_volatile(reader_address, pipe.reader as i32);
+        write_volatile(writer_address, pipe.writer as i32);
+    }
+
+    0
+}
+
+pub fn close(state: &GlobalState, args: SyscallArgs) -> usize {
+    let fd = args.1;
+
+    if fd == 0 || fd == 1 || fd == 2 {
+        return 0;
+    };
+
+    let mut pipes = state.pipes.write();
+
+    {
+        let pipe = if let Some(pipe) = pipes.get(&fd) {
+            pipe
+        } else {
+            return -EBADF as usize;
+        };
+
+        let mut pipe = pipe.lock();
+
+        if fd == pipe.reader {
+            pipe.read_end_open = false;
+            process::wake_up(state, (&raw const pipe.write_offset).addr());
+        } else if fd == pipe.writer {
+            pipe.write_end_open = true;
+            process::wake_up(state, (&raw const pipe.read_offset).addr());
+        }
+    }
+    pipes.remove(&fd).unwrap();
 
     0
 }

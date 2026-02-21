@@ -1,121 +1,105 @@
-// use anyhow::Result;
-// use anyhow::bail;
-// use core::cell::Cell;
-// use core::cell::RefCell;
-// use ringbuffer::RingBuffer;
+use core::sync::atomic::AtomicUsize;
 
-// use crate::error::Error;
-// use crate::global_state::GlobalState;
-// use alloc::vec;
-// use alloc::{rc::Rc, vec::Vec};
-// use ringbuffer::AllocRingBuffer;
+use alloc::sync::Arc;
+use anyhow::Result;
+use anyhow::bail;
+use ringbuffer::RingBuffer;
 
-// use crate::file::{File, FileType};
-// use crate::process::{self};
+use crate::Mutex;
+use crate::error::Error;
+use crate::global_state::GlobalState;
+use alloc::vec;
+use alloc::vec::Vec;
+use ringbuffer::AllocRingBuffer;
 
-// pub const PIPE_SIZE: usize = 1024;
+use crate::process::{self};
 
-// pub struct Pipe {
-//     data: RefCell<AllocRingBuffer<u8>>,
-//     read_end_open: Cell<bool>,
-//     write_end_open: Cell<bool>,
-//     read_offset: Cell<usize>,
-//     write_offset: Cell<usize>,
-//     state: &'static GlobalState,
-// }
+pub const PIPE_SIZE: usize = 4096;
 
-// pub fn allocate_pipe(
-//     state: &'static GlobalState,
-//     reader: &Rc<File>,
-//     writer: &Rc<File>,
-// ) -> Rc<Pipe> {
-//     let pipe = Rc::new(Pipe {
-//         data: RefCell::new(AllocRingBuffer::new(PIPE_SIZE)),
-//         read_end_open: Cell::new(true),
-//         write_end_open: Cell::new(true),
-//         read_offset: Cell::new(0),
-//         write_offset: Cell::new(0),
-//         state,
-//     });
+static FILE_DESCRIPTOR: AtomicUsize = AtomicUsize::new(3);
 
-//     *reader.file_type.borrow_mut() = FileType::Pipe(pipe.clone());
-//     *reader.readable.borrow_mut() = true;
-//     *reader.writeable.borrow_mut() = false;
+pub struct Pipe {
+    data: AllocRingBuffer<u8>,
+    pub read_end_open: bool,
+    pub write_end_open: bool,
+    pub read_offset: usize,
+    pub write_offset: usize,
+    pub reader: usize,
+    pub writer: usize,
+}
 
-//     *writer.file_type.borrow_mut() = FileType::Pipe(pipe.clone());
-//     *writer.readable.borrow_mut() = false;
-//     *writer.writeable.borrow_mut() = true;
+pub fn allocate_pipe(state: &GlobalState) -> Arc<Mutex<Pipe>> {
+    let reader = FILE_DESCRIPTOR.fetch_add(1, core::sync::atomic::Ordering::AcqRel);
+    let writer = FILE_DESCRIPTOR.fetch_add(1, core::sync::atomic::Ordering::AcqRel);
 
-//     pipe
-// }
+    let pipe = Arc::new(Mutex::new(Pipe {
+        data: AllocRingBuffer::new(PIPE_SIZE),
+        read_end_open: true,
+        write_end_open: true,
+        read_offset: 0,
+        write_offset: 0,
+        reader,
+        writer,
+    }));
 
-// impl Pipe {
-//     pub fn write(&self, buffer: &[u8]) -> Result<()> {
-//         let state = self.state;
+    let mut pipes = state.pipes.write();
+    pipes.insert(reader, pipe.clone());
+    pipes.insert(writer, pipe.clone());
 
-//         if self.write_end_open.get() == false {
-//             bail!(Error::PipeWriterClosed);
-//         }
+    pipe
+}
 
-//         if self.read_end_open.get() == false {
-//             bail!(Error::PipeReaderClosed);
-//         }
+impl Pipe {
+    pub fn write(&mut self, state: &GlobalState, buffer: &[u8]) -> Result<()> {
+        if self.write_end_open == false {
+            bail!(Error::PipeWriterClosed);
+        }
 
-//         for i in 0..buffer.len() {
-//             while let Some(_) = self.data.borrow_mut().enqueue(buffer[i])
-//                 && self.read_end_open.get()
-//             {
-//                 state.disable_interrupts();
+        if self.read_end_open == false {
+            bail!(Error::PipeReaderClosed);
+        }
 
-//                 if let Some(process) = state.get_current_process() {
-//                     let mut process = process.lock();
-//                     process::wake_up(state, (&raw const self.read_offset).addr());
+        for i in 0..buffer.len() {
+            while let Some(_) = self.data.enqueue(buffer[i])
+                && self.read_end_open
+            {
+                state.disable_interrupts();
 
-//                     process.sleep((&raw const self.write_offset).addr());
-//                 }
-//             }
+                if let Some(process) = state.get_current_process() {
+                    let mut process = process.lock();
+                    process::wake_up(state, (&raw const self.read_offset).addr());
 
-//             self.write_offset
-//                 .set((self.write_offset.get() + 1) % PIPE_SIZE);
-//         }
+                    process.sleep((&raw const self.write_offset).addr());
+                }
+            }
 
-//         process::wake_up(state, (&raw const self.read_offset).addr());
+            self.write_offset = (self.write_offset + 1) % PIPE_SIZE;
+        }
 
-//         Ok(())
-//     }
+        process::wake_up(state, (&raw const self.read_offset).addr());
 
-//     pub fn read(&self, num_bytes: usize) -> Vec<u8> {
-//         let mut bytes = vec![];
+        Ok(())
+    }
 
-//         for _ in 0..num_bytes {
-//             while self.write_end_open.get() {
-//                 match self.data.borrow_mut().dequeue() {
-//                     Some(v) => {
-//                         bytes.push(v);
-//                         self.read_offset
-//                             .set((self.read_offset.get() + 1) % PIPE_SIZE);
-//                         break;
-//                     }
+    pub fn read(&mut self, state: &GlobalState, num_bytes: usize) -> Vec<u8> {
+        let mut bytes = vec![];
 
-//                     None => (),
-//                 }
-//             }
-//         }
+        for _ in 0..num_bytes {
+            while self.write_end_open {
+                match self.data.dequeue() {
+                    Some(v) => {
+                        bytes.push(v);
+                        self.read_offset = (self.read_offset + 1) % PIPE_SIZE;
+                        break;
+                    }
 
-//         process::wake_up(self.state, (&raw const self.write_offset).addr());
+                    None => (),
+                }
+            }
+        }
 
-//         bytes
-//     }
+        process::wake_up(state, (&raw const self.write_offset).addr());
 
-//     pub fn close(&mut self) {
-//         if self.read_end_open.get() == true {
-//             self.read_end_open.set(false);
-//             process::wake_up(self.state, (&raw const self.write_offset).addr());
-//         }
-
-//         if self.write_end_open.get() == true {
-//             self.write_end_open.set(false);
-//             process::wake_up(self.state, (&raw const self.read_offset).addr());
-//         }
-//     }
-// }
+        bytes
+    }
+}

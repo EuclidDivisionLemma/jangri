@@ -33,6 +33,7 @@ pub enum Syscall {
     Sbrk = 300,
     Pipe = 400,
     Exit = 500,
+    Close = 600,
 }
 
 #[derive(Default)]

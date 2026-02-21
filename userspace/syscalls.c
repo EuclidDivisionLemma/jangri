@@ -84,6 +84,16 @@ void exit(int r)
 
 int close(int fd)
 {
+    register ssize_t a7 asm("a7") = 600;
+    register ssize_t a0 asm("a0") = fd;
+
+    asm volatile("ecall" : : "r"(a7), "r"(a0));
+
+    if (a0 < 0)
+    {
+        errno = -a0;
+        return -1;
+    }
 
     return 0;
 }

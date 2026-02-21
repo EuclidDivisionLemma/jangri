@@ -4,16 +4,13 @@
 
 int main()
 {
-    int* x = malloc(sizeof(int));
-    printf("Enter your age: ");
-    scanf("%d", x);
+    int fds[2];
+    pipe(fds);
 
-    if (*x < 18)
-    {
-        printf("You are not eligible to vote\n");
-    }
-    else
-    {
-        printf("You are indeed eligible\n");
-    }
+    write(fds[1], "Together Together Together Everyone", 36);
+    char buf[36];
+
+    read(fds[0], buf, 36);
+
+    printf("%s\n", buf);
 }

@@ -6,6 +6,7 @@ use hal::constants::PAGE_SIZE;
 use hal::interrupts::InterruptHandling;
 use hal::vm::{PageTable, VirtualMemory};
 
+use crate::pipe::Pipe;
 use crate::traps::initialise_global_state_for_trap_handlers;
 use crate::{
     ARCH, Mutex, PAGE_TABLE_ENTRY, RwLock,
@@ -20,6 +21,7 @@ pub struct GlobalState {
     current_process: Mutex<Option<Arc<Mutex<Process>>>>,
     pub scheduler_context: Context,
     arch: Mutex<ARCH>,
+    pub pipes: RwLock<BTreeMap<usize, Arc<Mutex<Pipe>>>>,
 }
 
 unsafe impl Send for GlobalState {}
@@ -52,6 +54,7 @@ impl GlobalState {
                     allocator.deallocate(addr, size)
                 }),
             )),
+            pipes: Default::default(),
         };
 
         initialise_global_state_for_trap_handlers(state)
