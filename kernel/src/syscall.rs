@@ -217,6 +217,9 @@ fn exit(state: &GlobalState, args: SyscallArgs) -> usize {
     current_process.process_state = ProcessState::Terminated {
         return_value: Ok(args.1 as isize),
     };
+    state
+        .cleanup_page_table(current_process.page_table)
+        .unwrap();
     drop(current_process);
     switch_to_scheduler_context(state);
 

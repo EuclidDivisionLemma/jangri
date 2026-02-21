@@ -52,15 +52,12 @@ pub struct Process {
     kernel_stack: usize,
     pub process_state: ProcessState,
     pub context: Context,
-    parent: Option<Weak<Process>>,
-    pub children: Option<Arc<Mutex<Process>>>,
     pub page_table: usize,
     pub trapframe: *mut TrapFrame,
     pub size: usize,
     pub global_state: &'static GlobalState,
     pub heap_end: usize,
     pub brk: usize,
-    pub just_now: bool,
 }
 
 impl Debug for Process {
@@ -77,77 +74,14 @@ impl Process {
             kernel_stack: 0,
             process_state: ProcessState::NotUsed,
             context: Context::default(),
-            parent: None,
-            children: None,
             page_table: 0,
             trapframe: null_mut(),
             size: 0,
             global_state: context,
             heap_end: 0,
             brk: 0,
-            just_now: false,
         }
     }
-
-    // pub fn clone(&'static mut self) -> Result<Arc<Spinlock<Process>>> {
-    //     let process = assign_process(self.global_state)?;
-
-    //     {
-    //         let mut process = process.lock();
-
-    //         process.context = self.context.clone();
-
-    //         process.fds = self.fds.clone();
-    //         process.kernel_stack = kernel_stack_address(process.id);
-    //         process.context.sp = process.kernel_stack + PAGE_SIZE;
-    //         process.context.ra = prepare_first_time_execution as usize;
-    //         process.size = self.size;
-
-    //         unsafe {
-    //             *process.trapframe = (*self.trapframe).clone();
-    //             (*process.trapframe).a0 = 0;
-    //             (*self.trapframe).a0 = process.id;
-
-    //             (*process.trapframe).page_table = process.page_table;
-    //             (*process.trapframe).kernel_stack = process.kernel_stack;
-    //             (*process.trapframe).satp = Sv48 | ((*process.trapframe).page_table >> 12);
-    //         }
-
-    //         map(
-    //             self.global_state,
-    //             process.page_table,
-    //             TRAPFRAME,
-    //             process.trapframe.addr(),
-    //             PAGE_SIZE,
-    //             READ_WRITE,
-    //         )?;
-
-    //         process.parent = Some();
-
-    //         process.name = self.name.clone();
-
-    //         if let ProcessState::Running { cwd } = &self.process_state {
-    //             process.process_state = ProcessState::Ready { cwd: cwd.clone() };
-    //         }
-
-    //         vm::copy(
-    //             self.global_state,
-    //             self.page_table,
-    //             process.page_table,
-    //             self.size,
-    //         )?;
-
-    //         map_trampoline(
-    //             self.global_state,
-    //             process.page_table,
-    //             TRAMPOLINE,
-    //             unsafe { TRAMPOLINE_CODE_ADDRESS },
-    //             PAGE_SIZE,
-    //             READ_EXECUTE,
-    //         )?;
-    //     }
-    //     Ok(process)
-    // }
 }
 
 pub fn yield_cpu(state: &GlobalState) {
