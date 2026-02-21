@@ -1,12 +1,11 @@
 use crate::{
-    ARCH, DEVICE, INIT, Mutex, PAGE_TABLE_ENTRY, TrapFrame,
+    ARCH, Mutex, PAGE_TABLE_ENTRY, TrapFrame,
     constants::{
-        EXECUTE_ONLY, KERNEL_PAGE_TABLE, MAXIMUM_PROCESS, PAGE_SIZE, READ_EXECUTE, READ_ONLY,
-        READ_WRITE, ROOT_INODE, STACK_PAGES, STACK_START, Sv48, TRAMPOLINE,
-        TRAMPOLINE_CODE_ADDRESS, TRAMPOLINE_OFFSET, TRAPFRAME, USER_MODE, WRITE_ONLY,
+        EXECUTE_ONLY, KERNEL_PAGE_TABLE, MAXIMUM_PROCESS, READ_EXECUTE, READ_ONLY, READ_WRITE,
+        STACK_PAGES, STACK_START, Sv48, TRAMPOLINE, TRAMPOLINE_CODE_ADDRESS, TRAMPOLINE_OFFSET,
+        TRAPFRAME, USER_MODE, WRITE_ONLY,
     },
     error::Error,
-    fs::sfs::{MemoryINode, read_inode},
     global_state::GlobalState,
     scheduler::{Context, switch_to_scheduler_context},
     syscall::stdout,
@@ -23,30 +22,25 @@ use alloc::{
     sync::{Arc, Weak},
     vec::Vec,
 };
-use anyhow::{Result, bail};
+use anyhow::Result;
 use core::{
-    arch::{asm, global_asm},
-    cell::LazyCell,
+    arch::asm,
     fmt::Debug,
-    mem::{self, transmute},
-    ptr::{self, null_mut, write_volatile},
+    mem::transmute,
+    ptr::{self, null_mut},
 };
 use elf::{ElfBytes, endian::NativeEndian};
+use hal::constants::PAGE_SIZE;
 use lock_api::MutexGuard;
 
 pub enum ProcessState {
-    Ready {
-        cwd: Rc<MemoryINode>,
-    },
-    Running {
-        cwd: Rc<MemoryINode>,
-    },
+    Ready,
+    Running,
     Terminated {
         return_value: core::result::Result<isize, Box<dyn Debug>>,
     },
     NotUsed,
     Sleeping {
-        cwd: Rc<MemoryINode>,
         sleep_on: usize,
     },
 }
@@ -62,14 +56,12 @@ pub struct Process {
     parent: Option<Weak<Process>>,
     pub children: Option<Arc<Mutex<Process>>>,
     pub page_table: usize,
-    pub code: usize,
     pub trapframe: *mut TrapFrame,
-    pub fds: Vec<usize>,
     pub size: usize,
-    pub argv_addr: Vec<usize>,
     pub global_state: &'static GlobalState,
     pub heap_end: usize,
     pub brk: usize,
+    pub just_now: bool,
 }
 
 impl Debug for Process {
@@ -89,14 +81,12 @@ impl Process {
             parent: None,
             children: None,
             page_table: 0,
-            code: 0,
             trapframe: null_mut(),
-            fds: Vec::new(),
             size: 0,
-            argv_addr: Vec::new(),
             global_state: context,
             heap_end: 0,
             brk: 0,
+            just_now: false,
         }
     }
 
@@ -167,20 +157,13 @@ pub fn yield_cpu(state: &GlobalState) {
         .expect("YIELD FAILED - NO CURRENT PROCESS");
 
     let mut process = locked_process.lock();
-    if let ProcessState::Running { cwd } = &process.process_state {
-        process.process_state = ProcessState::Ready { cwd: cwd.clone() }
+    if let ProcessState::Running = &process.process_state {
+        process.process_state = ProcessState::Ready;
     }
     drop(process);
     switch_to_scheduler_context(state);
 }
 
-pub fn are_interrupts_enabled() -> bool {
-    unsafe {
-        let sstatus: usize;
-        asm!("csrr {}, sstatus", out(reg) sstatus);
-        (sstatus & (1 << 1)) != 0
-    }
-}
 pub fn assign_process(state: &'static GlobalState) -> Result<Arc<Mutex<Process>>> {
     static PID: spin::Mutex<usize> = spin::Mutex::new(0);
 
@@ -195,9 +178,7 @@ pub fn assign_process(state: &'static GlobalState) -> Result<Arc<Mutex<Process>>
 
     let mut process = locked_process.lock();
 
-    process.process_state = ProcessState::Ready {
-        cwd: read_inode(ROOT_INODE, &DEVICE),
-    };
+    process.process_state = ProcessState::Ready;
     process.page_table = page_table;
 
     process.trapframe = trapframe;
@@ -250,10 +231,6 @@ pub fn map_other_pages(
     final_code: usize,
     process: &mut MutexGuard<sync::RawMutex<PAGE_TABLE_ENTRY, ARCH>, Process>,
 ) -> Result<()> {
-    if (TRAPFRAME - final_code) < (10 * PAGE_SIZE) {
-        panic!("PROCESS CREATION FAILED - NOT ENOUGH SPACE FOR STACK AND HEAP");
-    }
-
     let stack = state.allocate(STACK_PAGES * PAGE_SIZE).unwrap();
 
     state.map(
@@ -302,16 +279,16 @@ pub fn map_other_pages(
     Ok(())
 }
 
-pub fn start_init(state: &'static GlobalState) {
+pub fn start_process(state: &'static GlobalState, bin: &[u8], name: &str) {
     let mut page = 0;
     let mut max_code_page_end_va = 0;
 
     let process = assign_process(state).expect("INIT FAILED - FAILED TO ASSIGN PROCESS");
     let mut process = process.lock();
-    process.name = "init".into();
+    process.name = name.into();
 
     let elf_data: ElfBytes<NativeEndian> =
-        elf::ElfBytes::minimal_parse(INIT).expect("INIT FAILED - ELF ERROR");
+        elf::ElfBytes::minimal_parse(bin).expect("INIT FAILED - ELF ERROR");
 
     let program_headers = elf_data
         .segments()
@@ -357,7 +334,7 @@ pub fn start_init(state: &'static GlobalState) {
             execute = true;
         }
 
-        let loadable = &INIT[offset..offset + file_size];
+        let loadable = &bin[offset..offset + file_size];
 
         map_code_pages(
             state,
@@ -424,11 +401,8 @@ pub fn prepare_first_time_execution() {
 impl Process {
     pub fn sleep(&mut self, sleep_on: usize) {
         match &self.process_state {
-            ProcessState::Running { cwd } | ProcessState::Ready { cwd } => {
-                self.process_state = ProcessState::Sleeping {
-                    cwd: cwd.clone(),
-                    sleep_on,
-                }
+            ProcessState::Running | ProcessState::Ready => {
+                self.process_state = ProcessState::Sleeping { sleep_on }
             }
             _ => (),
         }
@@ -438,9 +412,9 @@ impl Process {
 }
 
 pub fn wake_up(state: &GlobalState, sleep_on_arg: usize) {
-    if let Some((pid, cwd)) = state.find_sleeping_process(sleep_on_arg) {
+    if let Some(pid) = state.find_sleeping_process(sleep_on_arg) {
         let process = state.get_process(pid).unwrap();
         let mut process = process.lock();
-        process.process_state = ProcessState::Ready { cwd }
+        process.process_state = ProcessState::Ready;
     }
 }

@@ -24,7 +24,7 @@ pub fn initialise_global_state_for_trap_handlers(state: GlobalState) -> &'static
     GLOBAL_STATE.call_once(|| state)
 }
 
-pub fn initialise_traps() {
+pub fn initialise() {
     ARCH::initialise_traps();
     ARCH::set_next_timer_interrupt(TIME_SLICE);
 }

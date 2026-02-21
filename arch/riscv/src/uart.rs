@@ -1,6 +1,6 @@
 use core::{
     ptr::{read_volatile, write_volatile},
-    sync::atomic::{AtomicBool, AtomicUsize},
+    sync::atomic::AtomicBool,
 };
 
 use ringbuffer::{AllocRingBuffer, RingBuffer};
@@ -9,7 +9,9 @@ use crate::Mutex;
 
 pub const UART0: usize = 0x10000000;
 
-pub const RBR: usize = UART0; // Receiver Buffer Register
+/// Receiver Buffer Register
+pub const RBR: usize = UART0;
+
 pub const THR: usize = 0; // Transmitter Holding Register
 pub const IER: usize = 1; // Interrupt Enable Register
 pub const ISR: usize = 2; // Interrupt Status Register
@@ -20,12 +22,10 @@ pub const DIVISOR_LATCH_HIGH: usize = 1; // Divisor Latch High Byte
 pub const DIVISOR_LATCH_LOW: usize = 0; // Divisor Latch Low Byte
 
 static TX_BUSY: AtomicBool = AtomicBool::new(false);
-static CURSOR_POSITION: AtomicUsize = AtomicUsize::new(0);
+static mut CURSOR_POSITION: usize = 0;
 
 pub static INPUT_BUFFER: spin::Lazy<Mutex<AllocRingBuffer<u8>>> =
     spin::Lazy::new(|| Mutex::new(AllocRingBuffer::new(4096)));
-
-pub static mut READ: bool = false;
 
 pub fn write(offset: usize, value: u8) {
     unsafe {
@@ -37,7 +37,7 @@ pub fn read(offset: usize) -> u8 {
     unsafe { read_volatile((UART0 + offset) as *const u8) }
 }
 
-pub fn initialise_uart() {
+pub fn initialise() {
     write(IER, 0);
 
     write(LCR, 1 << 7);
@@ -54,13 +54,15 @@ pub fn initialise_uart() {
 }
 
 pub fn write_char(byte: u8) {
-    while TX_BUSY.load(core::sync::atomic::Ordering::Acquire) == true {
-        core::hint::spin_loop();
-    }
-
-    TX_BUSY.store(true, core::sync::atomic::Ordering::Release);
+    while let Err(_) = TX_BUSY.compare_exchange(
+        false,
+        true,
+        core::sync::atomic::Ordering::Acquire,
+        core::sync::atomic::Ordering::Relaxed,
+    ) {}
 
     write(THR, byte);
+    TX_BUSY.store(false, core::sync::atomic::Ordering::Release);
 }
 
 pub fn write_char_waiting(byte: u8) {
@@ -102,6 +104,8 @@ pub fn console_write_bytes(bytes: &[u8]) {
 }
 
 pub fn handle_interrupt() {
+    let mut input_buffer = INPUT_BUFFER.lock();
+
     read(ISR);
 
     if read(LSR) & (1 << 5) != 0 {
@@ -112,33 +116,30 @@ pub fn handle_interrupt() {
         loop {
             match read_char() {
                 Some(v) => {
-                    if unsafe { READ } {
-                        if v == '\n' as u8 || v == '\r' as u8 {
-                            write_char_waiting('\n' as u8);
-                            write_char_waiting('\r' as u8);
+                    if v == '\n' as u8 || v == '\r' as u8 {
+                        write_char_waiting('\n' as u8);
+                        write_char_waiting('\r' as u8);
 
-                            let mut input_buffer = INPUT_BUFFER.lock();
-                            input_buffer.enqueue('\n' as u8);
-                        } else if v == 0x7f || v == 0x08 {
-                            if CURSOR_POSITION.load(core::sync::atomic::Ordering::Acquire) > 0 {
-                                write_char_waiting(0x08);
-                                write_char_waiting(' ' as u8);
-                                write_char_waiting(0x08);
+                        input_buffer.enqueue('\n' as u8);
+                    } else if v == 0x7f || v == 0x08 {
+                        if unsafe { CURSOR_POSITION } > 0 {
+                            write_char_waiting(0x08);
+                            write_char_waiting(' ' as u8);
+                            write_char_waiting(0x08);
 
-                                let mut input_buffer = INPUT_BUFFER.lock();
-                                input_buffer.enqueue(v);
+                            input_buffer.enqueue(v);
 
-                                let _ = CURSOR_POSITION
-                                    .fetch_sub(1, core::sync::atomic::Ordering::AcqRel);
+                            unsafe {
+                                CURSOR_POSITION -= 1;
                             }
-                        } else {
-                            write_char(v);
-                            let _ =
-                                CURSOR_POSITION.fetch_add(1, core::sync::atomic::Ordering::AcqRel);
-
-                            let mut input_buffer = INPUT_BUFFER.lock();
-                            input_buffer.enqueue(v as u8);
                         }
+                    } else {
+                        write_char(v);
+                        unsafe {
+                            CURSOR_POSITION += 1;
+                        }
+
+                        input_buffer.enqueue(v as u8);
                     }
                 }
                 None => break,

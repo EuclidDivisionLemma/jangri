@@ -1,41 +1,32 @@
 use core::{
     arch::asm,
     ffi::{CStr, c_int},
-    ptr::slice_from_raw_parts_mut,
+    ptr::{self, slice_from_raw_parts_mut, write_volatile},
+    slice,
 };
 
-use hal::interrupts::{InterruptHandling, Syscall, SyscallArgs, TrapFrame};
+use alloc::format;
+use hal::{
+    constants::PAGE_SIZE,
+    interrupts::{InterruptHandling, Syscall, SyscallArgs, TrapFrame},
+};
+use ringbuffer::RingBuffer;
+use riscv_arch::uart::{self, INPUT_BUFFER};
 
 use crate::{
     ARCH,
-    file::{FILES, allocate_file},
+    constants::TRAMPOLINE,
     global_state::GlobalState,
-    pipe::allocate_pipe,
     process::ProcessState,
-    syscall::{
-        fs::{chdir, mkdir},
-        io::Error,
-        process::exit,
-    },
+    scheduler::switch_to_scheduler_context,
     vm::{self, translate_virtual_address},
 };
 
-pub mod fs;
-pub mod io;
-pub mod process;
-
-pub const SYSCALLS: [(Syscall, fn(&GlobalState, SyscallArgs) -> usize); 11] = [
-    (Syscall::Open, io::open),
-    (Syscall::Read, io::read),
-    (Syscall::Write, io::write),
-    (Syscall::Close, io::close),
-    (Syscall::Lseek, io::lseek),
-    (Syscall::Pipe, pipe),
+pub const SYSCALLS: [(Syscall, fn(&GlobalState, SyscallArgs) -> usize); 4] = [
+    (Syscall::Read, read),
+    (Syscall::Write, write),
     (Syscall::Sbrk, sbrk),
     (Syscall::Exit, exit),
-    (Syscall::Dup2, dup2),
-    (Syscall::Chdir, chdir),
-    (Syscall::Mkdir, mkdir),
 ];
 
 pub fn stdout<'a>(text: &'a str) {
@@ -51,6 +42,22 @@ pub fn stdout<'a>(text: &'a str) {
     }
 }
 
+pub fn write(state: &GlobalState, args: SyscallArgs) -> usize {
+    let ptr = args.2;
+    let current_process = state.get_current_process().unwrap();
+    let current_process = current_process.lock();
+
+    let text = unsafe {
+        CStr::from_ptr(
+            translate_virtual_address(state, current_process.page_table, ptr).unwrap() as *const u8,
+        )
+        .to_str()
+        .unwrap()
+    };
+    uart::console_write(text);
+    0
+}
+
 pub fn handle(state: &GlobalState) {
     if let Some(locked_process) = state.get_current_process() {
         let trapframe;
@@ -64,7 +71,7 @@ pub fn handle(state: &GlobalState) {
             args = ARCH::handle_syscall(trapframe);
 
             // sepc holds the program counter value at the point of trap
-            // But when the trap is due to a system call, we need to execute the next instruction
+            // But crate::process::when the trap is due to a system call, we need to execute the next instruction
 
             state.enable_interrupts();
         }
@@ -88,85 +95,84 @@ pub fn handle(state: &GlobalState) {
     }
 }
 
-pub fn pipe(state: &GlobalState, args: SyscallArgs) -> usize {
+fn read(state: &GlobalState, args: SyscallArgs) -> usize {
     let current_process = state.get_current_process().unwrap();
-    let current_process = current_process.lock();
+    let num_bytes = args.3;
 
-    let state = current_process.global_state;
+    let buf = translate_virtual_address(state, current_process.lock().page_table, args.2).unwrap()
+        as *mut u8;
 
-    let writer = allocate_file();
-    let reader = allocate_file();
+    let mut read = 0;
 
-    let _ = allocate_pipe(state, &reader, &writer);
+    while read < num_bytes {
+        let mut input_buffer = INPUT_BUFFER.lock();
 
-    let fds = unsafe {
-        &mut *slice_from_raw_parts_mut(
-            translate_virtual_address(state, current_process.page_table, args.1).unwrap()
-                as *mut c_int,
-            2,
-        )
-    };
+        if let Some(byte) = input_buffer.dequeue() {
+            unsafe {
+                write_volatile(buf.add(read), byte);
+                read += 1;
 
-    fds[0] = *reader.fd.borrow() as c_int;
-    fds[1] = *writer.fd.borrow() as c_int;
+                if byte == '\n' as u8 || byte == '\r' as u8 {
+                    break;
+                }
+            }
+        }
 
-    0
+        drop(input_buffer);
+    }
+
+    read
 }
 
 pub fn sbrk(state: &GlobalState, args: SyscallArgs) -> usize {
-    enum Error {
-        ENOMEM = 12,
-    }
-    let increment = args.1 as isize;
-
+    const EAGAIN: isize = 11;
+    let increment = args.1;
     let current_process = state.get_current_process().unwrap();
-    let current_process = current_process.lock();
+    let mut current_process = current_process.lock();
 
-    if increment == 0 {
-        current_process.brk
-    } else if increment < 0 {
-        panic!("NEGATIVE INCREMENT NOT ALLOWED YET!")
-    } else {
-        match vm::allocate_heap(state, increment, current_process) {
-            Ok(old_brk) => old_brk,
-            Err(e)
-                if matches!(
-                    e.downcast_ref().unwrap(),
-                    crate::error::Error::InvalidHeapSize
-                ) =>
-            {
-                -(Error::ENOMEM as isize) as usize
+    if increment + current_process.brk < current_process.heap_end {
+        let old = current_process.brk;
+        current_process.brk += increment;
+        return old;
+    }
+
+    assert!(current_process.brk == current_process.heap_end);
+
+    if increment + current_process.brk < TRAMPOLINE - 11 * PAGE_SIZE {
+        let num_pages = (increment + PAGE_SIZE - 1) / PAGE_SIZE;
+
+        if let Ok(pa) = state.allocate(num_pages * PAGE_SIZE) {
+            if let Ok(()) = state.map(
+                current_process.page_table,
+                current_process.brk,
+                pa,
+                num_pages * PAGE_SIZE,
+                true,
+                true,
+                false,
+                true,
+            ) {
+                let old = current_process.brk;
+                current_process.brk += increment;
+                current_process.heap_end += num_pages * PAGE_SIZE;
+                return old;
+            } else {
+                state.deallocate(pa, num_pages * PAGE_SIZE);
             }
-            Err(e) => panic!("HEAP ALLOCATION FAILED: {}", e),
         }
     }
+
+    return -EAGAIN as usize;
 }
 
-pub fn dup2(_: &GlobalState, args: SyscallArgs) -> usize {
-    let fd1 = args.1;
-    let fd2 = args.2;
+fn exit(state: &GlobalState, args: SyscallArgs) -> usize {
+    let current_process = state.get_current_process().unwrap();
+    let mut current_process = current_process.lock();
+    current_process.process_state = ProcessState::Terminated {
+        return_value: Ok(args.1 as isize),
+    };
+    drop(current_process);
+    switch_to_scheduler_context(state);
 
-    if fd1 == fd2 {
-        return fd2;
-    }
-
-    if let Some(_) = unsafe { FILES.get(&fd2) } {
-        unsafe {
-            FILES.remove(&fd2);
-        }
-    }
-
-    match unsafe { FILES.get(&fd1) } {
-        Some(file) => {
-            let new_file = file.clone();
-            *new_file.fd.borrow_mut() = fd2;
-
-            unsafe {
-                FILES.insert(fd2, new_file);
-            }
-
-            fd2
-        }
-        None => -Error::EBADF as usize,
-    }
+    0
 }

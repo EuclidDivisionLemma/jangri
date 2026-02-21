@@ -76,14 +76,14 @@ pub fn schedule(state: &GlobalState) -> ! {
     loop {
         let mut found = false;
 
-        if let Some((pid, cwd)) = state.find_ready_process() {
+        if let Some(pid) = state.find_ready_process() {
             let locked_process = state.get_process(pid).unwrap();
             let context;
 
             let mut process = locked_process.lock();
 
             context = &raw const process.context;
-            process.process_state = ProcessState::Running { cwd: cwd.clone() };
+            process.process_state = ProcessState::Running;
             drop(process);
 
             let scheduler_context = &raw const state.scheduler_context as *mut Context;

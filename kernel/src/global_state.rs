@@ -10,7 +10,6 @@ use crate::traps::initialise_global_state_for_trap_handlers;
 use crate::{
     ARCH, Mutex, PAGE_TABLE_ENTRY, RwLock,
     constants::{KERNEL_END, RAM_STOP},
-    fs::sfs::MemoryINode,
     process::{Process, ProcessState},
     scheduler::Context,
 };
@@ -85,30 +84,30 @@ impl GlobalState {
         *current_process = Some(process);
     }
 
-    pub fn find_ready_process(&self) -> Option<(usize, Rc<MemoryINode>)> {
+    pub fn find_ready_process(&self) -> Option<usize> {
         let processes = self.processes.read();
 
         for (pid, process) in processes.iter() {
             let process = process.lock();
 
-            if let ProcessState::Ready { cwd } = &process.process_state {
-                return Some((*pid, cwd.clone()));
+            if let ProcessState::Ready = &process.process_state {
+                return Some(*pid);
             }
         }
 
         None
     }
 
-    pub fn find_sleeping_process(&self, sleep_on: usize) -> Option<(usize, Rc<MemoryINode>)> {
+    pub fn find_sleeping_process(&self, sleep_on: usize) -> Option<usize> {
         let processes = self.processes.read();
 
         for (pid, process) in processes.iter() {
             let process = process.lock();
 
-            if let ProcessState::Sleeping { cwd, sleep_on: s } = &process.process_state
+            if let ProcessState::Sleeping { sleep_on: s } = &process.process_state
                 && *s == sleep_on
             {
-                return Some((*pid, cwd.clone()));
+                return Some(*pid);
             }
         }
 

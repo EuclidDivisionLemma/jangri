@@ -28,19 +28,11 @@ pub trait TrapFrame {
 
 #[derive(PartialEq, Eq, PartialOrd, Ord)]
 pub enum Syscall {
-    Open = 100,
-    Read = 200,
-    Write = 300,
-    Close = 400,
-    Lseek = 500,
-    Pipe = 600,
-    Sbrk = 700,
-    Exit = 800,
-    Fork = 900,
-    Wait = 1000,
-    Dup2 = 1200,
-    Chdir = 1300,
-    Mkdir = 1400,
+    Read = 100,
+    Write = 200,
+    Sbrk = 300,
+    Pipe = 400,
+    Exit = 500,
 }
 
 #[derive(Default)]

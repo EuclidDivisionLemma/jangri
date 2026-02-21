@@ -10,24 +10,17 @@ use crate::{
         END_OF_KERNEL_TEXT, KERNEL_END, KERNEL_HEAP_SIZE, KERNEL_PAGE_TABLE, KERNEL_START,
         READ_WRITE, TRAMPOLINE_CODE_ADDRESS, TRAMPOLINE_OFFSET,
     },
-    drivers::{Storage, ram_disk::RamDisk},
-    file::{allocate_file, create_file, exists, traverse_path},
-    fs::sfs::{self, DiskINode, flush_data_blocks, flush_inodes, read_inode},
     global_state::GlobalState,
-    pipe::allocate_pipe,
-    process::start_init,
+    process::start_process,
     scheduler::schedule,
     syscall::stdout,
-    traps::initialise_traps,
+    traps::initialise,
     vm::{align_to_page_size, enable_paging, initialise_kernel_page_table},
 };
 
 mod allocator;
 mod constants;
-mod drivers;
 mod error;
-mod file;
-mod fs;
 mod global_state;
 mod panic;
 mod pipe;
@@ -65,8 +58,6 @@ unsafe extern "C" {
     fn return_to_user_mode();
 }
 
-pub const DEVICE: RamDisk = RamDisk;
-
 fn intialise_constants() {
     unsafe {
         KERNEL_END = align_to_page_size(&kernel_end as *const u8 as usize);
@@ -88,17 +79,12 @@ fn main() -> ! {
 
     enable_paging();
 
-    let ram_disk = RamDisk;
-    ram_disk.initialise();
-
-    initialise_traps();
-
-    uart::initialise_uart();
-    fs::initialise(state);
+    traps::initialise();
+    uart::initialise();
 
     stdout("\x1b[2J\x1b[HJangri v0.0.1\n");
 
-    start_init(state);
+    start_process(state, INIT, "init");
 
     schedule(state);
 }

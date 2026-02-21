@@ -1,6 +1,7 @@
 use core::num::{NonZero, NonZeroUsize};
 
-pub const PAGE_SIZE: usize = 4096;
+use hal::constants::PAGE_SIZE;
+
 pub const MEM_SIZE: usize = 0x80000000;
 pub const TIME_SLICE: usize = 100000;
 
