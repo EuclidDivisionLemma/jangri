@@ -177,4 +177,30 @@ impl GlobalState {
     pub fn disable_interrupts(&self) {
         ARCH::disable_interrupts();
     }
+
+    pub fn cleanup_page_table(&self, page_table: usize) -> Result<()> {
+        let arch = self.arch.lock();
+        arch.clean_up_page_table(page_table as *mut PageTable<PAGE_TABLE_ENTRY>)
+    }
+
+    pub fn va2pa(&self, page_table: usize, va: usize) -> Result<usize> {
+        let arch = self.arch.lock();
+        arch.va2pa(page_table as *mut PageTable<PAGE_TABLE_ENTRY>, va)
+    }
+
+    pub fn unmap(
+        &self,
+        page_table: usize,
+        va: usize,
+        num_pages: usize,
+        deallocate: bool,
+    ) -> Result<()> {
+        let arch = self.arch.lock();
+        arch.unmap(
+            page_table as *mut PageTable<PAGE_TABLE_ENTRY>,
+            va,
+            num_pages,
+            deallocate,
+        )
+    }
 }

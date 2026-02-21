@@ -1,8 +1,7 @@
-use core::num::{NonZero, NonZeroUsize};
+use core::num::NonZeroUsize;
 
 use hal::constants::PAGE_SIZE;
 
-pub const MEM_SIZE: usize = 0x80000000;
 pub const TIME_SLICE: usize = 100000;
 
 pub static mut KERNEL_END: usize = 0;
@@ -27,18 +26,8 @@ pub const VIRTIO_MMIO_DISK_SIZE: usize = 0x1000;
 
 // UART
 pub const UART0: usize = 0x10000000;
-pub const UART_TEXT_BUFFER_SIZE: usize = 1000;
 
 pub static mut KERNEL_PAGE_TABLE: usize = 0;
-
-// Page Permissions
-pub const READ_WRITE: usize = 0b0110;
-pub const READ_ONLY: usize = 0b10;
-pub const WRITE_ONLY: usize = 0b100;
-pub const EXECUTE_ONLY: usize = 0b1000;
-pub const USER_MODE: usize = 0b10000;
-pub const READ_EXECUTE: usize = 0b1010;
-pub const READ_WRITE_EXECUTE: usize = 0b1110;
 
 pub const MAXIMUM_PROCESS: usize = 64;
 

@@ -8,7 +8,7 @@ use hal::interrupts::InterruptHandling;
 use crate::{
     constants::{
         END_OF_KERNEL_TEXT, KERNEL_END, KERNEL_HEAP_SIZE, KERNEL_PAGE_TABLE, KERNEL_START,
-        READ_WRITE, TRAMPOLINE_CODE_ADDRESS, TRAMPOLINE_OFFSET,
+        TRAMPOLINE_CODE_ADDRESS, TRAMPOLINE_OFFSET,
     },
     global_state::GlobalState,
     process::start_process,

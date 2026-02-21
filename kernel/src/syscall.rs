@@ -21,7 +21,6 @@ use crate::{
     pipe::allocate_pipe,
     process::{self, ProcessState},
     scheduler::switch_to_scheduler_context,
-    vm::{self, translate_virtual_address},
 };
 
 pub const SYSCALLS: [(Syscall, fn(&GlobalState, SyscallArgs) -> usize); 6] = [
@@ -56,7 +55,7 @@ pub fn write(state: &GlobalState, args: SyscallArgs) -> usize {
     let current_process = state.get_current_process().unwrap();
     let current_process = current_process.lock();
 
-    let ptr = translate_virtual_address(state, current_process.page_table, args.2).unwrap();
+    let ptr = state.va2pa(current_process.page_table, args.2).unwrap();
 
     if fd == 1 || fd == 2 {
         let bytes = unsafe { slice::from_raw_parts(ptr as *const u8, num_bytes) };
@@ -127,8 +126,9 @@ fn read(state: &GlobalState, args: SyscallArgs) -> usize {
     let num_bytes = args.3;
     let fd = args.1;
 
-    let buf = translate_virtual_address(state, current_process.lock().page_table, args.2).unwrap()
-        as *mut u8;
+    let buf = state
+        .va2pa(current_process.lock().page_table, args.2)
+        .unwrap() as *mut u8;
 
     let mut read = 0;
 
@@ -227,15 +227,11 @@ fn pipe(state: &GlobalState, args: SyscallArgs) -> usize {
     let current_process = state.get_current_process().unwrap();
     let current_process = current_process.lock();
 
-    let reader_address =
-        translate_virtual_address(state, current_process.page_table, args.1).unwrap() as *mut c_int;
+    let reader_address = state.va2pa(current_process.page_table, args.1).unwrap() as *mut c_int;
 
-    let writer_address = translate_virtual_address(
-        state,
-        current_process.page_table,
-        args.1 + size_of::<c_int>(),
-    )
-    .unwrap() as *mut c_int;
+    let writer_address = state
+        .va2pa(current_process.page_table, args.1 + size_of::<c_int>())
+        .unwrap() as *mut c_int;
 
     let pipe = allocate_pipe(state);
     let pipe = pipe.lock();

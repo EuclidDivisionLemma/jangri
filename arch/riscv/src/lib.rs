@@ -4,7 +4,7 @@ use hal::interrupts::InterruptHandling;
 extern crate alloc;
 
 use core::{
-    arch::{asm, global_asm},
+    arch::global_asm,
     sync::atomic::{AtomicBool, AtomicUsize},
 };
 

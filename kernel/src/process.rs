@@ -1,16 +1,15 @@
 use crate::{
     ARCH, Mutex, PAGE_TABLE_ENTRY, TrapFrame,
     constants::{
-        EXECUTE_ONLY, KERNEL_PAGE_TABLE, MAXIMUM_PROCESS, READ_EXECUTE, READ_ONLY, READ_WRITE,
-        STACK_PAGES, STACK_START, Sv48, TRAMPOLINE, TRAMPOLINE_CODE_ADDRESS, TRAMPOLINE_OFFSET,
-        TRAPFRAME, USER_MODE, WRITE_ONLY,
+        KERNEL_PAGE_TABLE, MAXIMUM_PROCESS, STACK_PAGES, STACK_START, Sv48, TRAMPOLINE,
+        TRAMPOLINE_CODE_ADDRESS, TRAMPOLINE_OFFSET, TRAPFRAME,
     },
     error::Error,
     global_state::GlobalState,
     scheduler::{Context, switch_to_scheduler_context},
     syscall::stdout,
     traps::{self, set_up_supervisor_to_user_mode_transition, user_trap},
-    vm::{self, drop_pages, kernel_stack_address, map, map_trampoline},
+    vm::{self, drop_pages, kernel_stack_address},
 };
 use alloc::{
     alloc::dealloc,

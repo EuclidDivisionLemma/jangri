@@ -1,12 +1,11 @@
 use core::{
     arch::{asm, global_asm},
-    cell::Cell,
     fmt::Debug,
     mem::transmute,
 };
 use hal::{
     constants::{TIME_SLICE, TRAMPOLINE, TRAPFRAME},
-    interrupts::{InterruptHandling, Syscall, SyscallArgs},
+    interrupts::{InterruptHandling, SyscallArgs},
 };
 use riscv::{
     interrupt::{

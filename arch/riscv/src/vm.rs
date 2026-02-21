@@ -115,10 +115,18 @@ impl VirtualMemory<PageTableEntry> for Riscv {
         page_table: *mut hal::vm::PageTable<PageTableEntry>,
         va: usize,
     ) -> anyhow::Result<usize> {
+        let aligned_va = (va / PAGE_SIZE) * PAGE_SIZE;
+        let offset = va % PAGE_SIZE;
+
         let page_table_entry = unsafe {
-            (*page_table).get_page_table_entry_address(self.allocate.clone(), va, false)
+            (*page_table).get_page_table_entry_address(self.allocate.clone(), aligned_va, false)
         }?;
-        Ok(unsafe { (*page_table_entry).get_physical_address() })
+
+        if unsafe { !(*page_table_entry).is_valid() } {
+            panic!();
+        }
+
+        Ok(unsafe { (*page_table_entry).get_physical_address() } + offset)
     }
 
     fn clean_up_page_table(
