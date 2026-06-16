@@ -4,8 +4,6 @@ use std::boxed::Box;
 
 use core::{alloc::Layout, ptr::NonNull};
 
-use anyhow::bail;
-
 use crate::{
     PAGE_SIZE, PageAllocator,
     linked_list::{LinkedList, MAGIC_1, MAGIC_2, Node, generate_node_id},
@@ -128,10 +126,11 @@ fn test_linked_list() {
 }
 
 #[test]
+#[should_panic(expected = "Allocation Error: Size (20) is not a power of two")]
 fn test_allocator() {
     let heap = unsafe { alloc(Layout::from_size_align(256 * PAGE_SIZE, PAGE_SIZE).unwrap()) };
     let mut allocator = PageAllocator::new(
-        &|_| bail!("Not Implemented"),
+        &|_| Err(hal::error::Error::MemoryNotAvailable),
         heap.addr(),
         heap.addr() + 256 * PAGE_SIZE,
     );

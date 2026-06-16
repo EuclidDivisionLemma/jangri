@@ -6,7 +6,7 @@ use core::{
 
 extern crate alloc;
 
-use anyhow::{Result, bail};
+use hal::error::Result;
 
 use crate::{
     PAGE_SIZE,
@@ -102,11 +102,11 @@ impl PageAllocator {
         // inadvertantly, causing a larger size to be allocated.
 
         if !size.is_power_of_two() {
-            bail!("Allocation Error: Size ({}) is not a power of two", size);
+            panic!("Allocation Error: Size ({}) is not a power of two", size);
         }
 
         if size < PAGE_SIZE {
-            bail!(
+            panic!(
                 "Allocation Error: Size ({}) is less than minimum allocable size (4096)",
                 size
             );
@@ -115,7 +115,7 @@ impl PageAllocator {
         assert!(size.is_power_of_two() && size >= PAGE_SIZE);
 
         if size < MIN_ALLOC {
-            bail!("Allocation Error: Minimum allocation size is 4KiB");
+            panic!("Allocation Error: Minimum allocation size is 4KiB");
         }
 
         let best_block = self.get_best_fit(size);
@@ -161,11 +161,7 @@ impl PageAllocator {
         if self.current_size == 0 || size > self.current_size {
             match (self.evict)(size / PAGE_SIZE) {
                 Ok(addr) => return Ok(addr),
-                Err(e) => bail!(
-                    "Allocation Error: No Free Page; caused by: {}; {:?}",
-                    e,
-                    self
-                ),
+                Err(_) => return Err(hal::error::Error::MemoryNotAvailable),
             }
         }
 
