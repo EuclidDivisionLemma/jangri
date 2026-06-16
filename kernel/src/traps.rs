@@ -4,6 +4,7 @@ use hal::interrupts::InterruptHandling;
 use alloc::{boxed::Box, format};
 use hal::error::Result;
 
+use riscv_arch::uart;
 use spin::Once;
 
 use crate::{
@@ -64,7 +65,7 @@ pub fn user_trap() {
             let name = current_process.name.clone();
             let id = current_process.id;
             drop(current_process);
-            stdout(&format!(
+            uart::console_write(&format!(
                 "Exception Occured: Terminating process name = {}, pid = {}, cause = {:?}\n",
                 name, id, &cause,
             ));

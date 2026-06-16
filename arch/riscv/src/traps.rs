@@ -5,6 +5,7 @@ use core::{
 };
 use hal::{
     constants::{TIME_SLICE, TRAMPOLINE, TRAPFRAME},
+    error::Error,
     interrupts::{InterruptHandling, SyscallArgs},
 };
 use riscv::{
@@ -130,12 +131,25 @@ pub struct TrapFrame {
     pub kernel_page_table: usize, // 272
     pub user_trap_address: usize, // 280
     pub satp: usize,       // 288
+    pub error: Option<Error>,
 }
 
 impl hal::interrupts::TrapFrame for TrapFrame {
-    fn set_return_value_after_syscall(this: *mut Self, return_value: usize) {
+    fn set_success_indicator(this: *mut Self, return_value: usize) {
         unsafe {
             (*this).a0 = return_value;
+        }
+    }
+
+    fn set_error(this: *mut Self, error: Error) {
+        unsafe {
+            (*this).error = Some(error);
+        }
+    }
+
+    fn set_return_value(this: *mut Self, value: usize) {
+        unsafe {
+            (*this).a1 = value;
         }
     }
 }

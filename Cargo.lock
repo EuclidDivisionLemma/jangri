@@ -6,6 +6,7 @@ version = 4
 name = "allocator"
 version = "0.1.0"
 dependencies = [
+ "hal",
  "spin",
 ]
 
@@ -65,6 +66,7 @@ dependencies = [
  "cc",
  "elf",
  "hal",
+ "janglib",
  "lock_api",
  "ringbuffer",
  "riscv_arch",

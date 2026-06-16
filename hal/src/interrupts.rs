@@ -1,5 +1,7 @@
 use core::fmt::Debug;
 
+use crate::error;
+
 pub trait InterruptHandling {
     type TRAPFRAME: TrapFrame;
 
@@ -24,18 +26,10 @@ pub trait InterruptHandling {
 }
 
 pub trait TrapFrame {
-    fn set_return_value_after_syscall(this: *mut Self, return_value: usize);
+    fn set_success_indicator(this: *mut Self, status: usize);
+    fn set_error(this: *mut Self, error: error::Error);
+    fn set_return_value(this: *mut Self, value: usize);
 }
 
-#[derive(PartialEq, Eq, PartialOrd, Ord)]
-pub enum Syscall {
-    Read = 100,
-    Write = 200,
-    Sbrk = 300,
-    Pipe = 400,
-    Exit = 500,
-    Close = 600,
-}
-
-#[derive(Default)]
+#[derive(Default, Clone, Copy)]
 pub struct SyscallArgs(pub usize, pub usize, pub usize, pub usize);

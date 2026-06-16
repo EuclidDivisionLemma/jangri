@@ -1,6 +1,4 @@
 #![no_std]
-#![feature(stmt_expr_attributes)]
-#![feature(associated_type_defaults)]
 
 extern crate alloc;
 

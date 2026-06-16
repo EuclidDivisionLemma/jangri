@@ -28,7 +28,7 @@ unsafe extern "C" {
     /// Called inside scheduler to switch from scheduler context to process context
     /// and called inside `switch_to_scheduler_context` to switch from process context
     /// to scheduler context.
-    fn switch_context(old: usize, new: usize);
+    fn switch_context(old: usize, new: usize) -> !;
 }
 
 global_asm!(
@@ -102,7 +102,7 @@ pub fn schedule(state: &GlobalState) -> ! {
 }
 
 /// Switches from the current process context to the scheduler context.
-pub fn switch_to_scheduler_context(state: &GlobalState) {
+pub fn switch_to_scheduler_context(state: &GlobalState) -> ! {
     let context;
 
     let process = state.get_current_process().unwrap();

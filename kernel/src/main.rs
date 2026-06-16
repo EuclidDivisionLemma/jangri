@@ -19,7 +19,6 @@ mod allocator;
 mod constants;
 mod global_state;
 mod panic;
-mod pipe;
 mod process;
 mod scheduler;
 mod syscall;
@@ -31,11 +30,11 @@ extern crate alloc;
 pub const PROCESS1: &[u8] = include_bytes!("../../userspace/process1.elf");
 pub const PROCESS2: &[u8] = include_bytes!("../../userspace/process2.elf");
 
-#[cfg(target_arch = "riscv64")]
+// #[cfg(target_arch = "riscv64")]
 pub type ARCH = riscv_arch::Riscv;
 
-#[cfg(target_arch = "riscv64")]
-#[allow(non_camel_case_types)]
+// #[cfg(target_arch = "riscv64")]
+// #[allow(non_camel_case_types)]
 pub type PAGE_TABLE_ENTRY = riscv_arch::vm::PageTableEntry;
 
 pub type Mutex<T> = sync::Mutex<T, PAGE_TABLE_ENTRY, ARCH>;

@@ -2,7 +2,7 @@ use core::fmt::Debug;
 
 pub type Result<T> = core::result::Result<T, Error>;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum Error {
     PageAlreadyMapped { va: usize, pt: usize },
     NoSuchMapping { pa: usize, pt: usize },
@@ -13,4 +13,5 @@ pub enum Error {
     SizeMisaligned(usize),
     ZeroSize,
     MemoryNotAvailable,
+    InvalidSyscallNo(usize),
 }

@@ -1,6 +1,4 @@
 #![no_std]
-#![feature(unsafe_cell_access)]
-#![feature(vec_from_fn)]
 #![allow(static_mut_refs)]
 
 extern crate alloc;

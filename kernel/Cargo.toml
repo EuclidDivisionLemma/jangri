@@ -12,6 +12,7 @@ riscv_arch.workspace = true
 hal.workspace = true
 lock_api.workspace = true
 spin.workspace = true
+janglib.workspace = true
 
 
 [dependencies.elf]

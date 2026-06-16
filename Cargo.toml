@@ -11,3 +11,4 @@ sync = {path = "./sync"}
 hal = {path = "./hal"}
 riscv_arch = {path = "./arch/riscv"}
 wit-bindgen = {version = "0.51.0"}
+janglib = {path = "./janglib"}

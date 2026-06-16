@@ -1,9 +1,12 @@
 use core::{arch::asm, ffi::c_int, ptr::write_volatile, slice};
 
+use alloc::boxed::Box;
 use hal::{
     constants::PAGE_SIZE,
-    interrupts::{InterruptHandling, Syscall, SyscallArgs, TrapFrame},
+    error::{Error, Result},
+    interrupts::{InterruptHandling, SyscallArgs, TrapFrame},
 };
+use janglib::Syscall;
 use ringbuffer::RingBuffer;
 use riscv_arch::uart::{self, INPUT_BUFFER};
 
@@ -11,7 +14,6 @@ use crate::{
     ARCH,
     constants::TRAMPOLINE,
     global_state::GlobalState,
-    pipe::allocate_pipe,
     process::{self, ProcessState},
     scheduler::switch_to_scheduler_context,
 };
@@ -29,134 +31,79 @@ pub fn stdout<'a>(text: &'a str) {
     }
 }
 
-pub fn write(state: &GlobalState, args: SyscallArgs) -> usize {
-    let fd = args.1;
-    let mut num_bytes = args.3;
-    let current_process = state.get_current_process().unwrap();
-    let current_process = current_process.lock();
-
-    let ptr = state.va2pa(current_process.page_table, args.2).unwrap();
-
-    if fd == 1 || fd == 2 {
-        let bytes = unsafe { slice::from_raw_parts(ptr as *const u8, num_bytes) };
-
-        num_bytes = bytes.len();
-        uart::console_write_bytes(bytes);
-    } else {
-        let pipes = state.pipes.read();
-        let pipe = match pipes.get(&fd) {
-            Some(pipe) => pipe,
-            None => return -ENXIO as usize,
-        };
-
-        let mut pipe = pipe.lock();
-
-        if fd == pipe.reader {
-            return -EBADF as usize;
-        }
-
-        let buf = unsafe { slice::from_raw_parts(ptr as *const u8, num_bytes) };
-        drop(current_process);
-
-        if let Err(_) = pipe.write(state, buf) {
-            return -EPIPE as usize;
-        }
-    }
-    num_bytes
-}
-
 pub fn handle(state: &GlobalState) {
     if let Some(locked_process) = state.get_current_process() {
         let trapframe;
 
         let process = locked_process.lock();
+        let page_table = process.page_table;
         trapframe = process.trapframe;
         drop(process);
 
-        let args;
-        unsafe {
-            args = ARCH::handle_syscall(trapframe);
-            state.enable_interrupts();
-        }
+        let args = ARCH::handle_syscall(trapframe);
 
-        for (no, handler) in SYSCALLS {
-            if args.0 == no as usize {
-                let return_value = handler(state, args);
-                let process = locked_process.lock();
-                let trapframe = process.trapframe;
-
-                TrapFrame::set_return_value_after_syscall(trapframe, return_value);
-
-                return;
+        let syscall = if let Ok(syscall) = Syscall::try_from(args.0) {
+            syscall
+        } else {
+            TrapFrame::set_success_indicator(trapframe, 1);
+            TrapFrame::set_error(trapframe, Error::InvalidSyscallNo(args.0));
+            unsafe {
+                state.enable_interrupts();
             }
-        }
-        unsafe {
-            (*trapframe).a0 = -1isize as usize;
+            return;
+        };
+
+        let result = match syscall {
+            Syscall::WantMemory => {
+                let size = args.1;
+                want_memory(state, size)
+            }
+            Syscall::Write => {
+                let start = args.1 as *const u8;
+                let len = args.2;
+                let slice = janglib::memory::UserMemorySlice::<false, _>::new(
+                    start.addr(),
+                    page_table,
+                    len,
+                    |va, page_table| state.va2pa(page_table, va),
+                );
+                uart::console_write(str::from_utf8(slice.read()).unwrap());
+                Ok(len)
+            }
+            Syscall::ReadChar => {
+                let mut ch = uart::read_char();
+
+                while let None = ch {
+                    ch = uart::read_char();
+                }
+                Ok(ch.unwrap() as usize)
+            }
+            Syscall::Exit => exit(state, args),
+        };
+
+        match result {
+            Ok(v) => {
+                TrapFrame::set_success_indicator(trapframe, 0);
+                TrapFrame::set_return_value(trapframe, v);
+            }
+            Err(e) => {
+                TrapFrame::set_success_indicator(trapframe, 1);
+                TrapFrame::set_error(trapframe, e);
+            }
         }
     } else {
         panic!("SYSCALLd, BUT NO RUNNING PROCESS")
     }
 }
 
-fn read(state: &GlobalState, args: SyscallArgs) -> usize {
-    let current_process = state.get_current_process().unwrap();
-    let num_bytes = args.3;
-    let fd = args.1;
-
-    let buf = state
-        .va2pa(current_process.lock().page_table, args.2)
-        .unwrap() as *mut u8;
-
-    let mut read = 0;
-
-    if fd == 0 {
-        while read < num_bytes {
-            let mut input_buffer = INPUT_BUFFER.lock();
-
-            if let Some(byte) = input_buffer.dequeue() {
-                unsafe {
-                    write_volatile(buf.add(read), byte);
-                    read += 1;
-
-                    if byte == '\n' as u8 || byte == '\r' as u8 {
-                        break;
-                    }
-                }
-            }
-        }
-        read
-    } else {
-        let pipes = state.pipes.read();
-
-        if let Some(pipe) = pipes.get(&fd) {
-            let mut pipe = pipe.lock();
-
-            if fd != pipe.reader {
-                return -ENXIO as usize;
-            }
-
-            let bytes = pipe.read(state, num_bytes);
-            unsafe {
-                buf.copy_from(bytes.as_ptr(), num_bytes);
-            }
-
-            num_bytes
-        } else {
-            -ENXIO as usize
-        }
-    }
-}
-
-pub fn sbrk(state: &GlobalState, args: SyscallArgs) -> usize {
-    const EAGAIN: isize = 11;
-    let increment = args.1;
+pub fn want_memory(state: &GlobalState, increment: usize) -> Result<usize> {
     let current_process = state.get_current_process().unwrap();
     let mut current_process = current_process.lock();
 
     if increment + current_process.brk < current_process.heap_end {
         let old = current_process.brk;
         current_process.brk += increment;
-        return old;
+        return Ok(old);
     }
 
     assert!(current_process.brk == current_process.heap_end);
@@ -178,79 +125,30 @@ pub fn sbrk(state: &GlobalState, args: SyscallArgs) -> usize {
                 let old = current_process.brk;
                 current_process.brk += increment;
                 current_process.heap_end += num_pages * PAGE_SIZE;
-                return old;
+                return Ok(old);
             } else {
                 state.deallocate(pa, num_pages * PAGE_SIZE);
             }
         }
     }
 
-    return -EAGAIN as usize;
+    Err(Error::MemoryNotAvailable)
 }
 
-fn exit(state: &GlobalState, args: SyscallArgs) -> usize {
+fn exit(state: &GlobalState, args: SyscallArgs) -> ! {
     let current_process = state.get_current_process().unwrap();
     let mut current_process = current_process.lock();
     current_process.process_state = ProcessState::Terminated {
-        return_value: Ok(args.1 as isize),
+        return_value: if args.1 == 0 {
+            Ok(args.2)
+        } else {
+            let trapframe = current_process.trapframe;
+            unsafe { Err(Box::new((*trapframe).error.unwrap())) }
+        },
     };
     state
         .cleanup_page_table(current_process.page_table)
         .unwrap();
     drop(current_process);
     switch_to_scheduler_context(state);
-
-    0
-}
-
-fn pipe(state: &GlobalState, args: SyscallArgs) -> usize {
-    let current_process = state.get_current_process().unwrap();
-    let current_process = current_process.lock();
-
-    let reader_address = state.va2pa(current_process.page_table, args.1).unwrap() as *mut c_int;
-
-    let writer_address = state
-        .va2pa(current_process.page_table, args.1 + size_of::<c_int>())
-        .unwrap() as *mut c_int;
-
-    let pipe = allocate_pipe(state);
-    let pipe = pipe.lock();
-
-    unsafe {
-        write_volatile(reader_address, pipe.reader as i32);
-        write_volatile(writer_address, pipe.writer as i32);
-    }
-
-    0
-}
-
-pub fn close(state: &GlobalState, args: SyscallArgs) -> usize {
-    let fd = args.1;
-
-    if fd == 0 || fd == 1 || fd == 2 {
-        return 0;
-    };
-
-    let mut pipes = state.pipes.write();
-
-    {
-        let pipe = if let Some(pipe) = pipes.get(&fd) {
-            pipe
-        } else {
-            return -EBADF as usize;
-        };
-
-        let mut pipe = pipe.lock();
-
-        if fd == pipe.reader {
-            pipe.read_end_open = false;
-            process::wake_up(state, (&raw const pipe.write_offset).addr());
-        } else if fd == pipe.writer {
-            pipe.write_end_open = true;
-            process::wake_up(state, (&raw const pipe.read_offset).addr());
-        }
-    }
-    pipes.remove(&fd).unwrap();
-
-    0
 }
