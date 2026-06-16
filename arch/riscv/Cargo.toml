@@ -6,7 +6,6 @@ edition = "2024"
 [dependencies]
 hal.workspace = true
 riscv.workspace = true
-anyhow.workspace = true
 ringbuffer = "0.16.0"
 sync.workspace = true
 spin.workspace = true

@@ -1,14 +1,11 @@
 use core::fmt::Debug;
 
+use crate::error::{Error, Result};
 use alloc::sync::Arc;
-use anyhow::{Result, bail};
 
 // #[cfg(target_arch = "riscv64")]
+use crate::constants::{MAX_VA, NUMBER_OF_LEVELS, PAGE_SIZE};
 use crate::vm::constants::NUMBER_OF_PAGE_TABLE_ENTRIES_PER_PAGE;
-use crate::{
-    constants::{MAX_VA, NUMBER_OF_LEVELS, PAGE_SIZE},
-    error::Error,
-};
 
 pub trait VirtualMemory<T: PageTableEntry> {
     fn map(
@@ -64,8 +61,8 @@ impl<T: PageTableEntry> PageTable<T> {
 
     pub fn level_to_index(&self, level: usize, va: usize) -> usize {
         #[cfg(any(target_arch = "riscv64", target_arch = "riscv32"))]
-        va >> (12 + (level * 9))
-            & 0b111111111
+        return va >> (12 + (level * 9)) & 0b111111111;
+        unreachable!()
     }
 
     /// Returns the address of the page table entry corresponding to the given virtual address.
@@ -76,7 +73,7 @@ impl<T: PageTableEntry> PageTable<T> {
         should_allocate: bool,
     ) -> Result<*mut T> {
         if va > MAX_VA {
-            bail!(Error::VirtualAddressOverflow(va));
+            return Err(Error::VirtualAddressOverflow(va));
         }
 
         let mut page_table: *mut Self = &raw mut *self;
@@ -102,9 +99,9 @@ impl<T: PageTableEntry> PageTable<T> {
                             .set_physical_address(page_table as usize)
                             .set_valid();
                     } else {
-                        bail!(Error::NoSuchVirtualAddress {
+                        return Err(Error::NoSuchVirtualAddress {
                             va: va,
-                            pt: page_table as usize
+                            pt: page_table as usize,
                         });
                     }
                 }

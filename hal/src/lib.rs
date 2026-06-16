@@ -7,8 +7,8 @@ extern crate alloc;
 use core::ops::Fn;
 use core::ops::{BitAndAssign, BitOrAssign, Not};
 
+use crate::error::Result;
 use alloc::sync::Arc;
-use anyhow::Result;
 
 use crate::{
     interrupts::InterruptHandling,
@@ -16,7 +16,6 @@ use crate::{
 };
 
 pub mod constants;
-mod cpu;
 pub mod error;
 pub mod interrupts;
 pub mod vm;

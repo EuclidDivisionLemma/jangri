@@ -9,8 +9,8 @@ use core::{
 };
 
 use alloc::sync::Arc;
-use anyhow::Result;
 use hal::Hal;
+use hal::error::Result;
 
 use crate::vm::PageTableEntry;
 pub use traps::handle_traps_from_supervisor_mode;

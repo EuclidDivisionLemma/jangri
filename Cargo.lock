@@ -6,15 +6,8 @@ version = 4
 name = "allocator"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "spin",
 ]
-
-[[package]]
-name = "anyhow"
-version = "1.0.100"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a23eb6b1614318a8071c9b2521f36b424b2c83db5eb3a0fead4a6c0809af6e61"
 
 [[package]]
 name = "cc"
@@ -54,9 +47,7 @@ checksum = "f449e6c6c08c865631d4890cfacf252b3d396c9bcc83adb6623cdb02a8336c41"
 name = "hal"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "ringbuffer",
- "thiserror",
 ]
 
 [[package]]
@@ -71,7 +62,6 @@ name = "jangri"
 version = "0.0.1"
 dependencies = [
  "allocator",
- "anyhow",
  "cc",
  "elf",
  "hal",
@@ -81,7 +71,6 @@ dependencies = [
  "spin",
  "sync",
  "talc",
- "thiserror",
 ]
 
 [[package]]
@@ -157,7 +146,6 @@ checksum = "8188909339ccc0c68cfb5a04648313f09621e8b87dc03095454f1a11f6c5d436"
 name = "riscv_arch"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "hal",
  "ringbuffer",
  "riscv",
@@ -201,7 +189,6 @@ dependencies = [
 name = "sync"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "hal",
  "lock_api",
  "riscv",
@@ -214,26 +201,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a3ae828aa394de34c7de08f522d1b86bd1c182c668d27da69caadda00590f26d"
 dependencies = [
  "lock_api",
-]
-
-[[package]]
-name = "thiserror"
-version = "2.0.17"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f63587ca0f12b72a0600bcba1d40081f830876000bb46dd2337a3051618f4fc8"
-dependencies = [
- "thiserror-impl",
-]
-
-[[package]]
-name = "thiserror-impl"
-version = "2.0.17"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3ff15c8ecd7de3849db632e14d18d2571fa09dfc5ed93479bc4485c7a517c913"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
 ]
 
 [[package]]

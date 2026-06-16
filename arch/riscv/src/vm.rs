@@ -1,13 +1,12 @@
 use core::arch::asm;
 
 use alloc::sync::Arc;
-use anyhow::bail;
+use hal::error::{Error, Result};
 
 mod pte;
 
 use hal::{
     constants::{NUMBER_OF_PAGE_TABLE_ENTRIES_PER_PAGE, PAGE_SIZE},
-    error::Error,
     vm::{PageTable, PageTableEntry as PageTableEntryTrait, VirtualMemory},
 };
 
@@ -24,19 +23,19 @@ impl VirtualMemory<PageTableEntry> for Riscv {
         write: bool,
         execute: bool,
         user: bool,
-    ) -> anyhow::Result<()> {
+    ) -> Result<()> {
         let mut page_table_entry: *mut PageTableEntry;
 
         if va % PAGE_SIZE != 0 {
-            bail!(Error::VirtualAddressMisaligned(va));
+            return Err(Error::VirtualAddressMisaligned(va));
         }
 
         if size % PAGE_SIZE != 0 {
-            bail!(Error::SizeMisaligned(size));
+            return Err(Error::SizeMisaligned(size));
         }
 
         if size == 0 {
-            bail!(Error::ZeroSize);
+            return Err(Error::ZeroSize);
         }
 
         let number_of_pages = size / PAGE_SIZE;
@@ -46,14 +45,14 @@ impl VirtualMemory<PageTableEntry> for Riscv {
                 (*page_table).get_page_table_entry_address(self.allocate.clone(), va, true)
             } {
                 Ok(v) => page_table_entry = v,
-                Err(e) => bail!(e),
+                Err(e) => return Err(e),
             }
 
             unsafe {
                 if (*page_table_entry).is_valid() {
-                    bail!(Error::PageAlreadyMapped {
+                    return Err(Error::PageAlreadyMapped {
                         va,
-                        pt: (&raw const page_table) as usize
+                        pt: (&raw const page_table) as usize,
                     });
                 }
 
@@ -90,7 +89,7 @@ impl VirtualMemory<PageTableEntry> for Riscv {
         va: usize,
         num_pages: usize,
         deallocate: bool,
-    ) -> anyhow::Result<()> {
+    ) -> Result<()> {
         for page_va in (va..va + num_pages * PAGE_SIZE).step_by(PAGE_SIZE) {
             if let Ok(pte) = unsafe {
                 (*page_table).get_page_table_entry_address(self.allocate.clone(), page_va, false)
@@ -114,7 +113,7 @@ impl VirtualMemory<PageTableEntry> for Riscv {
         &self,
         page_table: *mut hal::vm::PageTable<PageTableEntry>,
         va: usize,
-    ) -> anyhow::Result<usize> {
+    ) -> Result<usize> {
         let aligned_va = (va / PAGE_SIZE) * PAGE_SIZE;
         let offset = va % PAGE_SIZE;
 
@@ -132,7 +131,7 @@ impl VirtualMemory<PageTableEntry> for Riscv {
     fn clean_up_page_table(
         &self,
         page_table: *mut hal::vm::PageTable<PageTableEntry>,
-    ) -> anyhow::Result<()> {
+    ) -> Result<()> {
         for i in 0..NUMBER_OF_PAGE_TABLE_ENTRIES_PER_PAGE {
             let pte = unsafe { (*page_table).get_entry(i) };
             let page_table =
