@@ -288,4 +288,27 @@ impl InterruptHandling for Riscv {
             riscv::register::sstatus::set_spie();
         }
     }
+
+    fn make_sycall(args: SyscallArgs) -> Result<usize, usize> {
+        unsafe {
+            asm!(
+                "mv a0, {}",
+                "mv a1, {}",
+                "mv a2, {}",
+                "mv a3, {}",
+                "ecall",
+                in(reg) args.0,
+                in(reg) args.1,
+                in(reg) args.2,
+                in(reg) args.3
+            );
+
+            let a0: usize;
+            asm!("mv {}, a0", out(reg) a0);
+            let a1: usize;
+            asm!("mv {}, a1", out(reg) a1);
+
+            if a0 != 0 { Err(a1) } else { Ok(a1) }
+        }
+    }
 }

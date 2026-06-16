@@ -3,7 +3,7 @@ use core::fmt::Debug;
 use alloc::sync::Arc;
 use anyhow::{Result, bail};
 
-#[cfg(target_arch = "riscv64")]
+// #[cfg(target_arch = "riscv64")]
 use crate::vm::constants::NUMBER_OF_PAGE_TABLE_ENTRIES_PER_PAGE;
 use crate::{
     constants::{MAX_VA, NUMBER_OF_LEVELS, PAGE_SIZE},
@@ -116,7 +116,7 @@ impl<T: PageTableEntry> PageTable<T> {
     }
 }
 
-#[cfg(target_arch = "riscv64")]
+// #[cfg(target_arch = "riscv64")]
 pub(crate) mod constants {
     pub const NUMBER_OF_PAGE_TABLE_ENTRIES_PER_PAGE: usize = 512;
     pub const MAX_VA: usize = 0xffffffffffffffff;
