@@ -16,19 +16,6 @@ use crate::{
     scheduler::switch_to_scheduler_context,
 };
 
-pub const SYSCALLS: [(Syscall, fn(&GlobalState, SyscallArgs) -> usize); 6] = [
-    (Syscall::Read, read),
-    (Syscall::Write, write),
-    (Syscall::Sbrk, sbrk),
-    (Syscall::Pipe, pipe),
-    (Syscall::Exit, exit),
-    (Syscall::Close, close),
-];
-
-const ENXIO: isize = 6;
-const EBADF: isize = 9;
-const EPIPE: isize = 32;
-
 pub fn stdout<'a>(text: &'a str) {
     let chars = text.as_bytes();
     unsafe {

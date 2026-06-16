@@ -7,8 +7,8 @@ use crate::{
     },
     global_state::GlobalState,
 };
-use anyhow::Result;
 use hal::constants::PAGE_SIZE;
+use hal::error::Result;
 
 pub fn enable_paging() {
     <ARCH as hal::vm::VirtualMemory<PAGE_TABLE_ENTRY>>::enable_paging(unsafe { KERNEL_PAGE_TABLE });

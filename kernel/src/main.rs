@@ -17,7 +17,6 @@ use crate::{
 
 mod allocator;
 mod constants;
-mod error;
 mod global_state;
 mod panic;
 mod pipe;

@@ -1,9 +1,9 @@
 use alloc::collections::linked_list::LinkedList;
 use alloc::{collections::btree_map::BTreeMap, sync::Arc};
 use allocator::PageAllocator;
-use anyhow::{Result, bail};
 use hal::Hal;
 use hal::constants::PAGE_SIZE;
+use hal::error::Result;
 use hal::interrupts::InterruptHandling;
 use hal::vm::{PageTable, VirtualMemory};
 
@@ -32,7 +32,7 @@ unsafe impl Sync for GlobalState {}
 impl GlobalState {
     pub fn initialise() -> &'static Self {
         let allocator0 = Arc::new(Mutex::new(PageAllocator::new(
-            &|_| bail!("Not yet implemented"),
+            &|_| todo!("Page eviction is not implemented. It's a hobby OS afterall!"),
             unsafe { KERNEL_END },
             RAM_STOP,
         )));

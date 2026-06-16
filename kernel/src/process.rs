@@ -10,7 +10,6 @@ use crate::{
     vm::kernel_stack_address,
 };
 use alloc::{boxed::Box, format, sync::Arc};
-use anyhow::Result;
 use core::{
     fmt::Debug,
     mem::transmute,
@@ -18,6 +17,7 @@ use core::{
 };
 use elf::{ElfBytes, endian::NativeEndian};
 use hal::constants::PAGE_SIZE;
+use hal::error::Result;
 use lock_api::MutexGuard;
 
 pub enum ProcessState {
@@ -25,7 +25,7 @@ pub enum ProcessState {
     Running,
     Terminated {
         #[allow(unused)]
-        return_value: core::result::Result<isize, Box<dyn Debug>>,
+        return_value: core::result::Result<usize, Box<dyn Debug>>,
     },
     NotUsed,
     Sleeping {
