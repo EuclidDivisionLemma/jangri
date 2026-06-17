@@ -5,7 +5,7 @@
 
 handle_traps_from_user_mode:
     csrw sscratch, a0
-    li a0, 0xFFFFFFFFFFFFE000
+    li a0, 0xFFFFFFFFFFFFD000
 
     sd ra, 0(a0)
     sd sp, 8(a0)
@@ -78,7 +78,7 @@ return_to_user_mode:
 
     sfence.vma
 
-    li a0, 0xFFFFFFFFFFFFE000
+    li a0, 0xFFFFFFFFFFFFD000
 
     ld ra, 0(a0)
     ld sp, 8(a0)
