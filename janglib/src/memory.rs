@@ -1,11 +1,12 @@
 use core::slice;
 
+use alloc::vec::Vec;
 use hal::{
     error::{Error, Result},
     interrupts::InterruptHandling,
 };
 
-use crate::Syscall;
+use crate::{ARCH, Syscall};
 
 pub struct UserMemorySlice<const WRITABLE: bool, F: Fn(usize, usize) -> Result<usize>> {
     start: usize,
@@ -30,6 +31,10 @@ impl<'a, const WRITABLE: bool, F: Fn(usize, usize) -> Result<usize>> UserMemoryS
         let start = (self.translate)(self.start, self.page_table).unwrap();
         unsafe { slice::from_raw_parts(start as *const u8, self.size) }
     }
+
+    pub fn read_to_vec(&self) -> Vec<u8> {
+        self.read().to_vec()
+    }
 }
 
 impl<F: Fn(usize, usize) -> Result<usize>> UserMemorySlice<true, F> {
@@ -40,11 +45,11 @@ impl<F: Fn(usize, usize) -> Result<usize>> UserMemorySlice<true, F> {
     }
 }
 
-pub fn want_memory<I: InterruptHandling>(size: usize) -> Result<(usize, usize)> {
+pub fn want_memory(size: usize) -> Result<(usize, usize)> {
     let mut args = hal::interrupts::SyscallArgs::default();
     args.0 = Syscall::WantMemory as usize;
     args.1 = (size + hal::constants::PAGE_SIZE - 1) / hal::constants::PAGE_SIZE;
-    I::make_sycall(args)
+    ARCH::make_sycall(args)
         .map(|start| (start, args.1))
         .map_err(|_| Error::MemoryNotAvailable)
 }
