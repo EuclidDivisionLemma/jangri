@@ -1,2 +1,0 @@
-CompileFlags:
-  Add: [-I/opt/cross/include, --target=riscv64-unknwown-elf]
