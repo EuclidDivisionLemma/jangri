@@ -1,10 +1,12 @@
+use alloc::format;
 use core::arch::global_asm;
-use hal::interrupts::InterruptHandling;
+use hal::{constants::PAGE_SIZE, interrupts::InterruptHandling};
+use riscv_arch::uart;
 
-use crate::{ARCH, global_state::GlobalState, process::ProcessState};
+use crate::{ARCH, global_state::GlobalState, process::ProcessState, syscall::stdout};
 
 #[repr(C)]
-#[derive(Clone, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct Context {
     pub ra: usize,
     pub sp: usize,
@@ -21,6 +23,15 @@ pub struct Context {
     pub s9: usize,
     pub s10: usize,
     pub s11: usize,
+}
+
+impl Context {
+    pub fn set_return_address(&mut self, addr: usize) {
+        self.ra = addr;
+    }
+    pub fn set_sp(&mut self, base: usize) {
+        self.sp = base;
+    }
 }
 
 unsafe extern "C" {

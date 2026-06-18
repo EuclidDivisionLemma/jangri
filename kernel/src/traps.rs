@@ -1,5 +1,5 @@
 use core::mem::transmute;
-use hal::interrupts::InterruptHandling;
+use hal::{constants::TRAMPOLINE, interrupts::InterruptHandling};
 
 use alloc::{boxed::Box, format};
 use hal::error::Result;
@@ -9,7 +9,7 @@ use spin::Once;
 
 use crate::{
     ARCH,
-    constants::{TIME_SLICE, TRAMPOLINE, TRAMPOLINE_OFFSET},
+    constants::{TIME_SLICE, TRAMPOLINE_OFFSET},
     global_state::GlobalState,
     process::{wake_up, yield_cpu},
     syscall::{self, stdout},
@@ -66,8 +66,13 @@ pub fn user_trap() {
             let id = current_process.id;
             drop(current_process);
             uart::console_write(&format!(
-                "Exception Occured: Terminating process name = {}, pid = {}, cause = {:?}\n",
-                name, id, &cause,
+                "Exception Occured: Terminating process name = {}, pid = {}, cause = {:?}, \
+                Faulting instruction address = {:?}, Faulting memory address = {:?}\n",
+                name,
+                id,
+                &cause,
+                ARCH::intpc(),
+                ARCH::intmem(),
             ));
             wake_up(state, id);
             let mut current_process = process.lock();

@@ -2,17 +2,18 @@
 #![no_main]
 #![allow(static_mut_refs)]
 
-use hal::interrupts::InterruptHandling;
+use alloc::format;
+use hal::{interrupts::InterruptHandling, vm::align_to_page_size};
 
 use crate::{
     constants::{
         END_OF_KERNEL_TEXT, KERNEL_END, KERNEL_START, TRAMPOLINE_CODE_ADDRESS, TRAMPOLINE_OFFSET,
     },
     global_state::GlobalState,
-    process::start_process,
+    process::assign_process,
     scheduler::schedule,
     syscall::stdout,
-    vm::{align_to_page_size, enable_paging, initialise_kernel_page_table},
+    vm::{enable_paging, initialise_kernel_page_table},
 };
 
 mod allocator;
@@ -27,14 +28,11 @@ mod vm;
 
 extern crate alloc;
 
-pub const PROCESS1: &[u8] = include_bytes!("../../userspace/process1.elf");
-pub const PROCESS2: &[u8] = include_bytes!("../../userspace/process2.elf");
-
-// #[cfg(target_arch = "riscv64")]
+#[cfg(target_arch = "riscv64")]
 pub type ARCH = riscv_arch::Riscv;
 
-// #[cfg(target_arch = "riscv64")]
-// #[allow(non_camel_case_types)]
+#[cfg(target_arch = "riscv64")]
+#[allow(non_camel_case_types)]
 pub type PAGE_TABLE_ENTRY = riscv_arch::vm::PageTableEntry;
 
 pub type Mutex<T> = sync::Mutex<T, PAGE_TABLE_ENTRY, ARCH>;
@@ -53,6 +51,8 @@ unsafe extern "C" {
 
     fn return_to_user_mode();
 }
+
+pub static RAM_FS: &'static [u8] = include_bytes!("../../ramfs.img");
 
 fn intialise_constants() {
     unsafe {
@@ -79,9 +79,7 @@ fn main() -> ! {
     uart::initialise();
 
     stdout("\x1b[2J\x1b[HJangri v0.0.1\n");
-
-    start_process(state, PROCESS1, "process1");
-    start_process(state, PROCESS2, "process2");
+    assign_process(state, "init", RAM_FS.to_vec()).unwrap();
 
     schedule(state);
 }

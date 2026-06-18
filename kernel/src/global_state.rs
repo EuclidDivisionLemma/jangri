@@ -30,7 +30,7 @@ unsafe impl Sync for GlobalState {}
 impl GlobalState {
     pub fn initialise() -> &'static Self {
         let allocator0 = Arc::new(Mutex::new(PageAllocator::new(
-            &|_| todo!("Page eviction is not implemented. It's a hobby OS afterall!"),
+            &|_| return Err(hal::error::Error::MemoryNotAvailable),
             unsafe { KERNEL_END },
             RAM_STOP,
         )));

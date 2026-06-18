@@ -2,20 +2,15 @@ use crate::{
     ARCH, PAGE_TABLE_ENTRY,
     constants::{
         END_OF_KERNEL_TEXT, KERNEL_PAGE_TABLE, KERNEL_START, MAXIMUM_PROCESS, PLIC, PLIC_SIZE,
-        RAM_STOP, TRAMPOLINE, TRAMPOLINE_CODE_ADDRESS, UART0, VIRTIO_MMIO_DISK,
-        VIRTIO_MMIO_DISK_SIZE,
+        RAM_STOP, TRAMPOLINE_CODE_ADDRESS, UART0,
     },
     global_state::GlobalState,
 };
-use hal::constants::PAGE_SIZE;
+use hal::constants::{PAGE_SIZE, TRAMPOLINE};
 use hal::error::Result;
 
 pub fn enable_paging() {
     <ARCH as hal::vm::VirtualMemory<PAGE_TABLE_ENTRY>>::enable_paging(unsafe { KERNEL_PAGE_TABLE });
-}
-
-pub fn align_to_page_size(size: usize) -> usize {
-    (size + PAGE_SIZE - 1) / PAGE_SIZE * PAGE_SIZE
 }
 
 pub fn initialise_kernel_page_table(state: &GlobalState) -> Result<()> {
@@ -29,17 +24,6 @@ pub fn initialise_kernel_page_table(state: &GlobalState) -> Result<()> {
             UART0,
             UART0,
             PAGE_SIZE,
-            true,
-            true,
-            false,
-            false,
-        )?;
-
-        state.map(
-            KERNEL_PAGE_TABLE,
-            VIRTIO_MMIO_DISK,
-            VIRTIO_MMIO_DISK,
-            VIRTIO_MMIO_DISK_SIZE,
             true,
             true,
             false,

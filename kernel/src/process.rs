@@ -1,23 +1,33 @@
 use crate::{
     ARCH, Mutex, PAGE_TABLE_ENTRY, TrapFrame,
-    constants::{
-        KERNEL_PAGE_TABLE, STACK_PAGES, STACK_START, Sv48, TRAMPOLINE, TRAMPOLINE_CODE_ADDRESS,
-        TRAMPOLINE_OFFSET, TRAPFRAME,
-    },
+    constants::{KERNEL_PAGE_TABLE, Sv48, TRAMPOLINE_CODE_ADDRESS, TRAMPOLINE_OFFSET},
     global_state::GlobalState,
     scheduler::{Context, switch_to_scheduler_context},
+    syscall::stdout,
     traps::{self, set_up_supervisor_to_user_mode_transition, user_trap},
     vm::kernel_stack_address,
 };
-use alloc::{boxed::Box, format, sync::Arc};
+use alloc::{boxed::Box, format, sync::Arc, vec::Vec};
 use core::{
     fmt::Debug,
-    mem::transmute,
-    ptr::{self, null_mut},
+    mem::{self, transmute},
+    ptr::{self, null_mut, write_bytes},
+    slice,
 };
-use elf::{ElfBytes, endian::NativeEndian};
-use hal::constants::PAGE_SIZE;
-use hal::error::Result;
+use elf::{
+    ElfBytes,
+    abi::{PF_R, PF_W, PF_X, PT_LOAD, SHT_NOBITS},
+    endian::NativeEndian,
+};
+use hal::{
+    Hal,
+    constants::{ERROR_PAGE, PAGE_SIZE, STACK_PAGES, TRAMPOLINE, TRAPFRAME},
+    vm::align_to_page_size,
+};
+use hal::{
+    constants::STACK_START,
+    error::{Error, Result},
+};
 use lock_api::MutexGuard;
 
 pub enum ProcessState {
@@ -45,8 +55,8 @@ pub struct Process {
     pub trapframe: *mut TrapFrame,
     pub size: usize,
     pub global_state: &'static GlobalState,
+    pub heap_start: usize,
     pub heap_end: usize,
-    pub brk: usize,
 }
 
 impl Debug for Process {
@@ -67,8 +77,8 @@ impl Process {
             trapframe: null_mut(),
             size: 0,
             global_state: context,
+            heap_start: 0,
             heap_end: 0,
-            brk: 0,
         }
     }
 }
@@ -86,7 +96,11 @@ pub fn yield_cpu(state: &GlobalState) {
     switch_to_scheduler_context(state);
 }
 
-pub fn assign_process(state: &'static GlobalState) -> Result<Arc<Mutex<Process>>> {
+pub fn assign_process(
+    state: &'static GlobalState,
+    name: &str,
+    image: Vec<u8>,
+) -> Result<Arc<Mutex<Process>>> {
     static PID: spin::Mutex<usize> = spin::Mutex::new(0);
 
     let page_table = state.allocate(PAGE_SIZE).unwrap();
@@ -99,12 +113,17 @@ pub fn assign_process(state: &'static GlobalState) -> Result<Arc<Mutex<Process>>
     state.add_process(*pid, locked_process.clone());
 
     let mut process = locked_process.lock();
+    process.name = name.into();
+    process
+        .context
+        .set_return_address(prepare_first_time_execution as fn() as usize);
 
     process.process_state = ProcessState::Ready;
     process.page_table = page_table;
 
     process.trapframe = trapframe;
 
+    #[cfg(target_arch = "riscv64")]
     unsafe {
         *trapframe = TrapFrame::default();
         (*trapframe).page_table = page_table;
@@ -112,6 +131,59 @@ pub fn assign_process(state: &'static GlobalState) -> Result<Arc<Mutex<Process>>
         (*trapframe).kernel_page_table = Sv48 | (KERNEL_PAGE_TABLE >> 12);
         (*trapframe).user_trap_address = user_trap as fn() as usize;
     }
+
+    let elf_bytes = elf::ElfBytes::<NativeEndian>::minimal_parse(image.as_slice())
+        .map_err(|_| Error::ELFError)?;
+
+    for segment in elf_bytes.segments().ok_or(Error::ELFError)? {
+        if segment.p_type == PT_LOAD {
+            let code_page_start = align_to_page_size(segment.p_vaddr as usize);
+            let memsz = align_to_page_size(segment.p_memsz as usize)
+                .checked_next_power_of_two()
+                .unwrap();
+            let mut pt = state.allocate(memsz)?;
+
+            state.map(
+                page_table,
+                code_page_start,
+                pt,
+                align_to_page_size(segment.p_memsz as usize), // results in space waste
+                if segment.p_flags & PF_R != 0 {
+                    true
+                } else {
+                    false
+                },
+                if segment.p_flags & PF_W != 0 {
+                    true
+                } else {
+                    false
+                },
+                if segment.p_flags & PF_X != 0 {
+                    true
+                } else {
+                    false
+                },
+                true,
+            )?;
+            let pt = unsafe { slice::from_raw_parts_mut(pt as *mut u8, segment.p_filesz as usize) };
+            pt.copy_from_slice(
+                &image[segment.p_offset as usize..(segment.p_offset + segment.p_filesz) as usize],
+            );
+
+            if process.heap_start <= code_page_start {
+                process.heap_start = process
+                    .heap_start
+                    .checked_add(code_page_start + PAGE_SIZE)
+                    .unwrap();
+            }
+        }
+
+        process.heap_end = process.heap_start;
+    }
+
+    hal::interrupts::TrapFrame::set_entry_point(trapframe, elf_bytes.ehdr.e_entry as usize);
+    map_other_pages(state, process.page_table, &mut process)
+        .expect("PROCESS CREATION FAILED - ERROR WHILE MAPPING PAGES");
 
     drop(process);
 
@@ -166,6 +238,10 @@ pub fn map_other_pages(
     )?;
 
     process.kernel_stack = kernel_stack_address(process.id);
+    let ks = process.kernel_stack;
+    process.context.set_sp(ks + 4 * PAGE_SIZE);
+
+    hal::interrupts::TrapFrame::set_sp(process.trapframe, STACK_START + STACK_PAGES * PAGE_SIZE);
 
     state.map(
         page_table,
@@ -191,119 +267,28 @@ pub fn map_other_pages(
         false,
     )?;
 
+    let error_page = state.allocate(PAGE_SIZE)?;
+
+    state.map(
+        page_table, ERROR_PAGE, error_page, PAGE_SIZE, true, true, false, true,
+    )?;
+
     unsafe {
         (*trapframe).kernel_page_table = Sv48 | (KERNEL_PAGE_TABLE >> 12);
         (*trapframe).kernel_stack = process.kernel_stack;
-        (*trapframe).sp = TRAMPOLINE - 2 * PAGE_SIZE;
     }
 
     Ok(())
-}
-
-pub fn start_process(state: &'static GlobalState, bin: &[u8], name: &str) {
-    let mut page = 0;
-    let mut max_code_page_end_va = 0;
-
-    let process = assign_process(state).expect("INIT FAILED - FAILED TO ASSIGN PROCESS");
-    let mut process = process.lock();
-    process.name = name.into();
-
-    let elf_data: ElfBytes<NativeEndian> =
-        elf::ElfBytes::minimal_parse(bin).expect("INIT FAILED - ELF ERROR");
-
-    let program_headers = elf_data
-        .segments()
-        .expect("INIT FAILED - NO SEGMENTS")
-        .iter();
-
-    for header in program_headers {
-        let file_size = header.p_filesz as usize;
-        let mem_size = header.p_memsz as usize;
-
-        let num_pages = (mem_size + PAGE_SIZE - 1) / PAGE_SIZE;
-
-        if num_pages == 0 {
-            continue;
-        }
-
-        page = state
-            .allocate((num_pages * PAGE_SIZE).next_power_of_two())
-            .unwrap();
-
-        let offset = header.p_offset as usize;
-
-        let va = header.p_vaddr as usize;
-        let flags = header.p_flags;
-
-        if va + num_pages * PAGE_SIZE > max_code_page_end_va {
-            max_code_page_end_va = va + num_pages * PAGE_SIZE;
-        }
-
-        let mut read = false;
-        let mut write = false;
-        let mut execute = false;
-
-        if flags & elf::abi::PF_R != 0 {
-            read = true;
-        }
-
-        if flags & elf::abi::PF_W != 0 {
-            write = true;
-        }
-
-        if flags & elf::abi::PF_X != 0 {
-            execute = true;
-        }
-
-        let loadable = &bin[offset..offset + file_size];
-
-        map_code_pages(
-            state,
-            process.page_table,
-            page,
-            va,
-            num_pages,
-            read,
-            write,
-            execute,
-        );
-        process.size += num_pages * PAGE_SIZE;
-
-        unsafe {
-            ptr::copy_nonoverlapping(loadable.as_ptr(), page as *mut u8, file_size);
-        }
-    }
-
-    if page == 0 {
-        panic!("PANIC: INIT FAILED - ELF CONTAINS NO LOADABLE SEGMENT");
-    }
-
-    map_other_pages(state, process.page_table, &mut process)
-        .expect("INIT FAILED - ERROR WHILE MAPPING PAGES");
-
-    let trapframe = process.trapframe;
-
-    unsafe {
-        (*trapframe).sepc = elf_data.ehdr.e_entry as usize;
-    }
-    process.context.ra = prepare_first_time_execution as fn() as usize;
-
-    unsafe {
-        process.context.sp = (*trapframe).kernel_stack + 4 * PAGE_SIZE;
-        process.brk = max_code_page_end_va;
-        process.heap_end = max_code_page_end_va;
-    }
 }
 
 /// This function is called when a process has to be executed for the first time.
 pub fn prepare_first_time_execution() {
     let state = traps::get_global_state();
     let locked_process = state.get_current_process().expect("NO CURRENT PROCESS");
-    let trapframe;
 
     let process = locked_process.lock();
 
-    trapframe = process.trapframe;
+    let trapframe = process.trapframe;
     drop(process);
     set_up_supervisor_to_user_mode_transition(state)
         .expect("INIT FAILED - CONTEXT NONE WHILE RETURNING TO USER MODE");

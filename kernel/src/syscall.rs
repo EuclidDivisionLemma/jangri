@@ -1,22 +1,23 @@
-use core::{arch::asm, ffi::c_int, ptr::write_volatile, slice};
+use core::{arch::asm, ffi::c_int, mem, ptr::write_volatile, slice};
 
-use alloc::boxed::Box;
+use alloc::{boxed::Box, sync::Arc};
 use hal::{
-    constants::PAGE_SIZE,
+    constants::{ERROR_PAGE, PAGE_SIZE, STACK_GUARD},
     error::{Error, Result},
     interrupts::{InterruptHandling, SyscallArgs, TrapFrame},
 };
-use janglib::Syscall;
+use janglib::{Syscall, get_error, memory::UserMemorySlice};
 use ringbuffer::RingBuffer;
 use riscv_arch::uart::{self, INPUT_BUFFER};
 
 use crate::{
-    ARCH,
-    constants::TRAMPOLINE,
+    ARCH, Mutex,
     global_state::GlobalState,
-    process::{self, ProcessState},
+    process::{self, Process, ProcessState, assign_process, prepare_first_time_execution},
     scheduler::switch_to_scheduler_context,
 };
+
+use hal::vm::align_to_page_size;
 
 pub fn stdout<'a>(text: &'a str) {
     let chars = text.as_bytes();
@@ -31,7 +32,7 @@ pub fn stdout<'a>(text: &'a str) {
     }
 }
 
-pub fn handle(state: &GlobalState) {
+pub fn handle(state: &'static GlobalState) {
     if let Some(locked_process) = state.get_current_process() {
         let trapframe;
 
@@ -42,44 +43,73 @@ pub fn handle(state: &GlobalState) {
 
         let args = ARCH::handle_syscall(trapframe);
 
+        let mut error_page = UserMemorySlice::<true, _>::new(
+            ERROR_PAGE,
+            page_table,
+            PAGE_SIZE,
+            |va: usize, page_table: usize| state.va2pa(page_table, va),
+        );
+
         let syscall = if let Ok(syscall) = Syscall::try_from(args.0) {
             syscall
         } else {
             TrapFrame::set_success_indicator(trapframe, 1);
-            TrapFrame::set_error(trapframe, Error::InvalidSyscallNo(args.0));
+            let e = unsafe {
+                mem::transmute::<_, [u8; size_of::<Error>()]>(Error::InvalidSyscallNo(args.0))
+            };
+            error_page.write(unsafe { e.as_slice() });
+
             unsafe {
                 state.enable_interrupts();
             }
             return;
         };
 
-        let result = match syscall {
-            Syscall::WantMemory => {
-                let size = args.1;
-                want_memory(state, size)
-            }
-            Syscall::Write => {
-                let start = args.1 as *const u8;
-                let len = args.2;
-                let slice = janglib::memory::UserMemorySlice::<false, _>::new(
-                    start.addr(),
-                    page_table,
-                    len,
-                    |va, page_table| state.va2pa(page_table, va),
-                );
-                uart::console_write(str::from_utf8(slice.read()).unwrap());
-                Ok(len)
-            }
-            Syscall::ReadChar => {
-                let mut ch = uart::read_char();
-
-                while let None = ch {
-                    ch = uart::read_char();
+        let result = || -> Result<usize> {
+            match syscall {
+                Syscall::WantMemory => {
+                    let size = args.1;
+                    want_memory(state, size)
                 }
-                Ok(ch.unwrap() as usize)
+                Syscall::Write => {
+                    let start = args.1 as *const u8;
+                    let len = args.2;
+                    let slice = janglib::memory::UserMemorySlice::<false, _>::new(
+                        start.addr(),
+                        page_table,
+                        len,
+                        |va, page_table| state.va2pa(page_table, va),
+                    );
+                    uart::console_write(str::from_utf8(slice.read()).unwrap());
+                    Ok(len)
+                }
+                Syscall::ReadChar => {
+                    let mut ch = uart::read_char();
+
+                    while let None = ch {
+                        ch = uart::read_char();
+                    }
+                    Ok(ch.unwrap() as usize)
+                }
+                Syscall::Exit => exit(state, args),
+                Syscall::Spawn => {
+                    let start = args.1;
+                    let len = args.2;
+                    let image = UserMemorySlice::<false, _>::new(
+                        start,
+                        page_table,
+                        len,
+                        |start, page_table| state.va2pa(page_table, start),
+                    )
+                    .read_to_vec();
+                    let process = assign_process(state, "", image)?;
+                    let process = process.lock();
+
+                    Ok(0)
+                }
             }
-            Syscall::Exit => exit(state, args),
         };
+        let result = result();
 
         match result {
             Ok(v) => {
@@ -87,8 +117,9 @@ pub fn handle(state: &GlobalState) {
                 TrapFrame::set_return_value(trapframe, v);
             }
             Err(e) => {
+                let e = unsafe { mem::transmute::<_, [u8; size_of::<Error>()]>(e) };
                 TrapFrame::set_success_indicator(trapframe, 1);
-                TrapFrame::set_error(trapframe, e);
+                error_page.write(unsafe { e.as_slice() });
             }
         }
     } else {
@@ -96,43 +127,34 @@ pub fn handle(state: &GlobalState) {
     }
 }
 
-pub fn want_memory(state: &GlobalState, increment: usize) -> Result<usize> {
-    let current_process = state.get_current_process().unwrap();
-    let mut current_process = current_process.lock();
+pub fn want_memory(state: &GlobalState, size: usize) -> Result<usize> {
+    let process: Arc<Mutex<Process>> = state.get_current_process().unwrap();
+    let mut process = process.lock();
+    let va = process.heap_end;
 
-    if increment + current_process.brk < current_process.heap_end {
-        let old = current_process.brk;
-        current_process.brk += increment;
-        return Ok(old);
+    assert!(size % PAGE_SIZE == 0);
+
+    let num_pages = size / PAGE_SIZE;
+
+    if va + num_pages * PAGE_SIZE >= STACK_GUARD {
+        return Err(Error::MemoryNotAvailable);
     }
 
-    assert!(current_process.brk == current_process.heap_end);
+    let pa = state.allocate(size)?;
+    state.map(
+        process.page_table,
+        va,
+        pa,
+        num_pages * PAGE_SIZE,
+        true,
+        true,
+        false,
+        true,
+    )?;
 
-    if increment + current_process.brk < TRAMPOLINE - 11 * PAGE_SIZE {
-        let num_pages = (increment + PAGE_SIZE - 1) / PAGE_SIZE;
+    process.heap_end += num_pages * PAGE_SIZE;
 
-        if let Ok(pa) = state.allocate(num_pages * PAGE_SIZE) {
-            if let Ok(()) = state.map(
-                current_process.page_table,
-                current_process.brk,
-                pa,
-                num_pages * PAGE_SIZE,
-                true,
-                true,
-                false,
-                true,
-            ) {
-                let old = current_process.brk;
-                current_process.brk += increment;
-                current_process.heap_end += num_pages * PAGE_SIZE;
-                return Ok(old);
-            } else {
-                state.deallocate(pa, num_pages * PAGE_SIZE);
-            }
-        }
-    }
-
-    Err(Error::MemoryNotAvailable)
+    Ok(process.heap_end - num_pages * PAGE_SIZE)
 }
 
 fn exit(state: &GlobalState, args: SyscallArgs) -> ! {
@@ -143,7 +165,7 @@ fn exit(state: &GlobalState, args: SyscallArgs) -> ! {
             Ok(args.2)
         } else {
             let trapframe = current_process.trapframe;
-            unsafe { Err(Box::new((*trapframe).error.unwrap())) }
+            unsafe { Err(Box::new(unsafe { get_error() })) }
         },
     };
     state
