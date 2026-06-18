@@ -4,14 +4,14 @@ use alloc::{boxed::Box, sync::Arc};
 use hal::{
     constants::{ERROR_PAGE, PAGE_SIZE, STACK_GUARD},
     error::{Error, Result},
-    interrupts::{InterruptHandling, SyscallArgs, TrapFrame},
+    interrupts::{InterruptHandling, SyscallArgs},
 };
 use janglib::{Syscall, get_error, memory::UserMemorySlice};
 use ringbuffer::RingBuffer;
 use riscv_arch::uart::{self, INPUT_BUFFER};
 
 use crate::{
-    ARCH, Mutex,
+    ARCH, Mutex, TrapFrame,
     global_state::GlobalState,
     process::{self, Process, ProcessState, assign_process, prepare_first_time_execution},
     scheduler::switch_to_scheduler_context,
@@ -33,97 +33,95 @@ pub fn stdout<'a>(text: &'a str) {
 }
 
 pub fn handle(state: &'static GlobalState) {
-    if let Some(locked_process) = state.get_current_process() {
-        let trapframe;
-
+    let locked_process: Arc<Mutex<Process>> = state
+        .get_current_process()
+        .expect("Syscalld but no running process");
+    let (trapframe, page_table): (*mut TrapFrame, usize) = {
         let process = locked_process.lock();
-        let page_table = process.page_table;
-        trapframe = process.trapframe;
-        drop(process);
+        (process.trapframe, process.page_table)
+    };
 
-        let args = ARCH::handle_syscall(trapframe);
+    let args = ARCH::handle_syscall(trapframe);
 
-        let mut error_page = UserMemorySlice::<true, _>::new(
-            ERROR_PAGE,
-            page_table,
-            PAGE_SIZE,
-            |va: usize, page_table: usize| state.va2pa(page_table, va),
-        );
+    let mut error_page = UserMemorySlice::<true, _>::new(
+        ERROR_PAGE,
+        page_table,
+        PAGE_SIZE,
+        |va: usize, page_table: usize| state.va2pa(page_table, va),
+    );
 
-        let syscall = if let Ok(syscall) = Syscall::try_from(args.0) {
-            syscall
-        } else {
-            TrapFrame::set_success_indicator(trapframe, 1);
-            let e = unsafe {
-                mem::transmute::<_, [u8; size_of::<Error>()]>(Error::InvalidSyscallNo(args.0))
-            };
-            error_page.write(unsafe { e.as_slice() });
-
-            unsafe {
-                state.enable_interrupts();
-            }
-            return;
+    let syscall = if let Ok(syscall) = Syscall::try_from(args.0) {
+        syscall
+    } else {
+        hal::interrupts::TrapFrame::set_success_indicator(trapframe, 1);
+        let e = unsafe {
+            mem::transmute::<_, [u8; size_of::<Error>()]>(Error::InvalidSyscallNo(args.0))
         };
+        error_page.write(unsafe { e.as_slice() });
 
-        let result = || -> Result<usize> {
-            match syscall {
-                Syscall::WantMemory => {
-                    let size = args.1;
-                    want_memory(state, size)
-                }
-                Syscall::Write => {
-                    let start = args.1 as *const u8;
-                    let len = args.2;
-                    let slice = janglib::memory::UserMemorySlice::<false, _>::new(
-                        start.addr(),
-                        page_table,
-                        len,
-                        |va, page_table| state.va2pa(page_table, va),
-                    );
-                    uart::console_write(str::from_utf8(slice.read()).unwrap());
-                    Ok(len)
-                }
-                Syscall::ReadChar => {
-                    let mut ch = uart::read_char();
+        unsafe {
+            state.enable_interrupts();
+        }
+        return;
+    };
 
-                    while let None = ch {
-                        ch = uart::read_char();
-                    }
-                    Ok(ch.unwrap() as usize)
-                }
-                Syscall::Exit => exit(state, args),
-                Syscall::Spawn => {
-                    let start = args.1;
-                    let len = args.2;
-                    let image = UserMemorySlice::<false, _>::new(
-                        start,
-                        page_table,
-                        len,
-                        |start, page_table| state.va2pa(page_table, start),
-                    )
-                    .read_to_vec();
-                    let process = assign_process(state, "", image)?;
-                    let process = process.lock();
-
-                    Ok(0)
-                }
+    let result = || -> Result<usize> {
+        match syscall {
+            Syscall::WantMemory => {
+                let size = args.1;
+                want_memory(state, size)
             }
-        };
-        let result = result();
-
-        match result {
-            Ok(v) => {
-                TrapFrame::set_success_indicator(trapframe, 0);
-                TrapFrame::set_return_value(trapframe, v);
+            Syscall::Write => {
+                let start = args.1 as *const u8;
+                let len = args.2;
+                let slice = janglib::memory::UserMemorySlice::<false, _>::new(
+                    start.addr(),
+                    page_table,
+                    len,
+                    |va, page_table| state.va2pa(page_table, va),
+                );
+                uart::console_write(str::from_utf8(slice.read()).unwrap());
+                Ok(len)
             }
-            Err(e) => {
-                let e = unsafe { mem::transmute::<_, [u8; size_of::<Error>()]>(e) };
-                TrapFrame::set_success_indicator(trapframe, 1);
-                error_page.write(unsafe { e.as_slice() });
+            Syscall::ReadChar => {
+                let mut ch = uart::read_char();
+
+                while let None = ch {
+                    ch = uart::read_char();
+                }
+                Ok(ch.unwrap() as usize)
+            }
+            Syscall::Exit => exit(state, args),
+            Syscall::Spawn => {
+                let start = args.1;
+                let len = args.2;
+                let image = UserMemorySlice::<false, _>::new(
+                    start,
+                    page_table,
+                    len,
+                    |start, page_table| state.va2pa(page_table, start),
+                )
+                .read_to_vec();
+                let process = assign_process(state, "", image)?;
+                let process = process.lock();
+                todo!();
+
+                Ok(0)
             }
         }
-    } else {
-        panic!("SYSCALLd, BUT NO RUNNING PROCESS")
+    };
+    let result = result();
+
+    match result {
+        Ok(v) => {
+            hal::interrupts::TrapFrame::set_success_indicator(trapframe, 0);
+            hal::interrupts::TrapFrame::set_return_value(trapframe, v);
+        }
+        Err(e) => {
+            let e = unsafe { mem::transmute::<_, [u8; size_of::<Error>()]>(e) };
+            hal::interrupts::TrapFrame::set_success_indicator(trapframe, 1);
+            error_page.write(unsafe { e.as_slice() });
+        }
     }
 }
 

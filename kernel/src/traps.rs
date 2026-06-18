@@ -1,17 +1,17 @@
 use core::mem::transmute;
 use hal::{constants::TRAMPOLINE, interrupts::InterruptHandling};
 
-use alloc::{boxed::Box, format};
+use alloc::{boxed::Box, format, sync::Arc};
 use hal::error::Result;
 
 use riscv_arch::uart;
 use spin::Once;
 
 use crate::{
-    ARCH,
+    ARCH, Mutex, TrapFrame,
     constants::{TIME_SLICE, TRAMPOLINE_OFFSET},
     global_state::GlobalState,
-    process::{wake_up, yield_cpu},
+    process::{Process, wake_up, yield_cpu},
     syscall::{self, stdout},
 };
 
@@ -44,14 +44,13 @@ pub fn supervisor_trap() {
 pub fn user_trap() {
     ARCH::set_supervisor_mode_trap_handler();
     let state = get_global_state();
-    let process = state.get_current_process();
+    let process: Option<Arc<Mutex<Process>>> = state.get_current_process();
 
-    if let Some(locked_process) = process {
-        let trapframe;
-
-        let process = locked_process.lock();
-        trapframe = process.trapframe;
-        drop(process);
+    if let Some(process) = process {
+        let trapframe: *mut TrapFrame = {
+            let process = process.lock();
+            process.trapframe
+        };
 
         if ARCH::is_timer_interrupt() {
             ARCH::set_next_timer_interrupt(TIME_SLICE);
@@ -60,11 +59,9 @@ pub fn user_trap() {
             ARCH::handle_external_interrupt();
         } else if ARCH::is_exception() {
             let cause = Box::new(ARCH::cause());
-            let process = state.get_current_process().unwrap();
             let current_process = process.lock();
             let name = current_process.name.clone();
             let id = current_process.id;
-            drop(current_process);
             uart::console_write(&format!(
                 "Exception Occured: Terminating process name = {}, pid = {}, cause = {:?}, \
                 Faulting instruction address = {:?}, Faulting memory address = {:?}\n",

@@ -1,9 +1,14 @@
-use alloc::format;
+use alloc::{format, sync::Arc};
 use core::arch::global_asm;
 use hal::{constants::PAGE_SIZE, interrupts::InterruptHandling};
 use riscv_arch::uart;
 
-use crate::{ARCH, global_state::GlobalState, process::ProcessState, syscall::stdout};
+use crate::{
+    ARCH, Mutex,
+    global_state::GlobalState,
+    process::{Process, ProcessState},
+    syscall::stdout,
+};
 
 #[repr(C)]
 #[derive(Debug, Clone, Default)]
@@ -88,14 +93,13 @@ pub fn schedule(state: &GlobalState) -> ! {
         let mut found = false;
 
         if let Some(pid) = state.find_ready_process() {
-            let locked_process = state.get_process(pid).unwrap();
-            let context;
+            let locked_process: Arc<Mutex<Process>> = state.get_process(pid).unwrap();
+            let context = {
+                let mut process = locked_process.lock();
 
-            let mut process = locked_process.lock();
-
-            context = &raw const process.context;
-            process.process_state = ProcessState::Running;
-            drop(process);
+                process.process_state = ProcessState::Running;
+                &raw const process.context
+            };
 
             let scheduler_context = &raw const state.scheduler_context as *mut Context;
 
@@ -114,12 +118,11 @@ pub fn schedule(state: &GlobalState) -> ! {
 
 /// Switches from the current process context to the scheduler context.
 pub fn switch_to_scheduler_context(state: &GlobalState) -> ! {
-    let context;
-
-    let process = state.get_current_process().unwrap();
-    let process = process.lock();
-    context = &raw const process.context;
-    drop(process);
+    let context = {
+        let process: Arc<Mutex<Process>> = state.get_current_process().unwrap();
+        let process = process.lock();
+        &raw const process.context
+    };
 
     let scheduler_context = &raw const state.scheduler_context as *mut Context;
 

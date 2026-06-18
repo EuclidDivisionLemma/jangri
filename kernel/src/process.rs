@@ -84,15 +84,16 @@ impl Process {
 }
 
 pub fn yield_cpu(state: &GlobalState) {
-    let locked_process = state
-        .get_current_process()
-        .expect("YIELD FAILED - NO CURRENT PROCESS");
+    {
+        let locked_process = state
+            .get_current_process()
+            .expect("YIELD FAILED - NO CURRENT PROCESS");
 
-    let mut process = locked_process.lock();
-    if let ProcessState::Running = &process.process_state {
-        process.process_state = ProcessState::Ready;
+        let mut process = locked_process.lock();
+        if let ProcessState::Running = &process.process_state {
+            process.process_state = ProcessState::Ready;
+        }
     }
-    drop(process);
     switch_to_scheduler_context(state);
 }
 
@@ -284,12 +285,11 @@ pub fn map_other_pages(
 /// This function is called when a process has to be executed for the first time.
 pub fn prepare_first_time_execution() {
     let state = traps::get_global_state();
-    let locked_process = state.get_current_process().expect("NO CURRENT PROCESS");
-
-    let process = locked_process.lock();
-
-    let trapframe = process.trapframe;
-    drop(process);
+    let trapframe: *mut TrapFrame = {
+        let process: Arc<Mutex<Process>> = state.get_current_process().expect("NO CURRENT PROCESS");
+        let process = process.lock();
+        process.trapframe
+    };
     set_up_supervisor_to_user_mode_transition(state)
         .expect("INIT FAILED - CONTEXT NONE WHILE RETURNING TO USER MODE");
 
