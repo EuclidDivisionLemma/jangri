@@ -3,8 +3,7 @@ use core::fmt::Debug;
 use crate::error::{Error, Result};
 use alloc::sync::Arc;
 
-// #[cfg(target_arch = "riscv64")]
-use crate::constants::{MAX_VA, NUMBER_OF_LEVELS, PAGE_SIZE};
+use crate::constants::{MAX_VA, NUMBER_OF_LEVELS, PAGE_SIZE, TRAPFRAME};
 use crate::vm::constants::NUMBER_OF_PAGE_TABLE_ENTRIES_PER_PAGE;
 
 pub trait VirtualMemory<T: PageTableEntry> {
@@ -113,12 +112,29 @@ impl<T: PageTableEntry> PageTable<T> {
     }
 }
 
-// #[cfg(target_arch = "riscv64")]
+#[cfg(target_arch = "riscv64")]
 pub(crate) mod constants {
     pub const NUMBER_OF_PAGE_TABLE_ENTRIES_PER_PAGE: usize = 512;
     pub const MAX_VA: usize = 0xffffffffffffffff;
     pub const NUMBER_OF_LEVELS: usize = 4;
     pub const PAGE_SIZE: usize = 0x1000;
-    pub const TRAMPOLINE: usize = 0xfffffffffffff000;
-    pub const TRAPFRAME: usize = TRAMPOLINE - PAGE_SIZE;
+}
+
+#[cfg(not(target_arch = "riscv64"))]
+pub(crate) mod constants {
+    pub const NUMBER_OF_PAGE_TABLE_ENTRIES_PER_PAGE: usize = 0;
+    pub const MAX_VA: usize = 0;
+    pub const NUMBER_OF_LEVELS: usize = 0;
+    pub const PAGE_SIZE: usize = 1;
+}
+
+pub fn align_to_page_size(size: usize) -> usize {
+    let offset = size % PAGE_SIZE;
+    let base = size / PAGE_SIZE;
+
+    if offset == 0 {
+        base * PAGE_SIZE
+    } else {
+        (base + 1) * PAGE_SIZE
+    }
 }

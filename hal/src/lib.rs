@@ -5,7 +5,7 @@ extern crate alloc;
 use core::ops::Fn;
 use core::ops::{BitAndAssign, BitOrAssign, Not};
 
-use crate::error::Result;
+use crate::error::{Error, Result};
 use alloc::sync::Arc;
 
 use crate::{
