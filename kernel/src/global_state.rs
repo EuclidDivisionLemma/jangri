@@ -108,7 +108,7 @@ impl GlobalState {
                         return Some(pid);
                     }
                 }
-                None => return None,
+                None => continue,
             }
         }
 
