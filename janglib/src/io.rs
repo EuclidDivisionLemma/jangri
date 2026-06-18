@@ -1,5 +1,6 @@
 use crate::{ARCH, Syscall};
 use alloc::string::String;
+use core::{arch::asm, panic::PanicInfo};
 use hal::interrupts::InterruptHandling;
 
 pub fn write(text: &str) {

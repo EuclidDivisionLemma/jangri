@@ -1,4 +1,4 @@
-use core::slice;
+use core::{alloc::GlobalAlloc, ptr::null_mut, slice};
 
 use alloc::vec::Vec;
 use hal::{
@@ -6,7 +6,7 @@ use hal::{
     interrupts::InterruptHandling,
 };
 
-use crate::{ARCH, Syscall};
+use crate::{ARCH, Syscall, get_error};
 
 pub struct UserMemorySlice<const WRITABLE: bool, F: Fn(usize, usize) -> Result<usize>> {
     start: usize,
@@ -40,16 +40,17 @@ impl<'a, const WRITABLE: bool, F: Fn(usize, usize) -> Result<usize>> UserMemoryS
 impl<F: Fn(usize, usize) -> Result<usize>> UserMemorySlice<true, F> {
     pub fn write(&mut self, bytes: &[u8]) {
         let start = (self.translate)(self.start, self.page_table).unwrap();
-        let mem = unsafe { slice::from_raw_parts_mut(start as *mut u8, self.size) };
-        mem.copy_from_slice(bytes);
+        let mem =
+            unsafe { slice::from_raw_parts_mut(start as *mut u8, self.size.min(bytes.len())) };
+        mem.copy_from_slice(&bytes[0..self.size.min(bytes.len())]);
     }
 }
 
 pub fn want_memory(size: usize) -> Result<(usize, usize)> {
     let mut args = hal::interrupts::SyscallArgs::default();
     args.0 = Syscall::WantMemory as usize;
-    args.1 = (size + hal::constants::PAGE_SIZE - 1) / hal::constants::PAGE_SIZE;
+    args.1 = hal::vm::align_to_page_size(size).next_power_of_two();
     ARCH::make_sycall(args)
         .map(|start| (start, args.1))
-        .map_err(|_| Error::MemoryNotAvailable)
+        .map_err(|_| unsafe { get_error() })
 }

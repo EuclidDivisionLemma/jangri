@@ -4,11 +4,12 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-hal.workspace = true
-riscv_arch.workspace = true
-talc = "5.0.3"
-spin.workspace = true
+hal = {workspace = true, optional = true}
+riscv_arch = {workspace = true, optional = true}
+talc = {version = "5.0.3", optional = true}
+spin = {workspace = true, optional = true}
 
 [features]
-default = []
-user = []
+default = ["hal", "riscv_arch"]
+user = ["default", "spin", "talc"]
+host_machine = []

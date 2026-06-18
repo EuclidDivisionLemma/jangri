@@ -1,17 +1,18 @@
 #![no_std]
 
+#[cfg(target_arch = "riscv64")]
+#[cfg(feature = "user")]
+use core::arch::global_asm;
 #[cfg(feature = "user")]
 use core::panic::PanicInfo;
-use core::{
-    arch::global_asm,
-    ptr::{write_bytes, write_volatile},
-};
+use core::ptr::{write_bytes, write_volatile};
 
 use hal::{
     constants::{ERROR_PAGE, PAGE_SIZE, TRAPFRAME},
     error::{Error, Result},
     interrupts::InterruptHandling,
 };
+#[cfg(feature = "user")]
 use talc::{DefaultBinning, base::binning::Binning, source::Source, sync::TalcLock};
 
 use crate::memory::{UserMemorySlice, want_memory};
@@ -19,7 +20,10 @@ use crate::memory::{UserMemorySlice, want_memory};
 extern crate alloc;
 
 pub mod io;
+
 pub mod memory;
+
+#[cfg(not(feature = "user"))]
 pub mod ramfs;
 
 pub type ARCH = riscv_arch::Riscv;
@@ -45,10 +49,11 @@ impl TryFrom<usize> for Syscall {
 
     fn try_from(value: usize) -> Result<Self> {
         Ok(match value {
-            0 => Syscall::WantMemory,
-            1 => Syscall::Write,
-            2 => Syscall::ReadChar,
-            3 => Syscall::Exit,
+            1 => Syscall::WantMemory,
+            2 => Syscall::Write,
+            3 => Syscall::ReadChar,
+            4 => Syscall::Exit,
+            5 => Syscall::Spawn,
             _ => return Err(hal::error::Error::InvalidSyscallNo(value)),
         })
     }
@@ -69,50 +74,35 @@ pub fn spawn(executable: usize, size: usize) -> Result<()> {
     args.2 = size;
     ARCH::make_sycall(args)
         .map(|_| ())
-        .map_err(|e| get_error().unwrap())
+        .map_err(|_| unsafe { get_error() })
 }
 
-pub fn get_error() -> Option<Error> {
-    let if_error = unsafe { *(ERROR_PAGE as *const u8) };
-
-    if if_error == 1 {
-        let error = (ERROR_PAGE + 1) as *const Error;
-        Some(unsafe { *error })
-    } else {
-        assert!(if_error == 0);
-        None
-    }
-}
-
-pub fn set_error(error: Error) {
-    let error_page = ERROR_PAGE as *mut u8;
+pub unsafe fn get_error() -> Error {
+    let e = unsafe { *(ERROR_PAGE as *const Error) };
     unsafe {
-        write_bytes(error_page, 0, PAGE_SIZE);
-        write_volatile(error_page, 1);
-
-        let error_page = ERROR_PAGE as *mut Error;
-        write_volatile(error_page, error);
+        write_bytes(ERROR_PAGE as *mut u8, 0, PAGE_SIZE);
     }
+    e
 }
 
 #[cfg(feature = "user")]
 #[derive(Debug)]
-pub struct CustomClaim;
+pub struct CustomSource;
 
 #[cfg(feature = "user")]
-impl CustomClaim {
+impl CustomSource {
     const fn empty() -> Self {
         Self
     }
 }
 
 #[cfg(feature = "user")]
-unsafe impl Source for CustomClaim {
+unsafe impl Source for CustomSource {
     fn acquire<B: Binning>(
         talc: &mut talc::base::Talc<Self, B>,
         layout: core::alloc::Layout,
     ) -> core::result::Result<(), ()> {
-        let (start, size) = want_memory(layout.size()).unwrap();
+        let (start, size) = want_memory(layout.size()).map_err(|_| ())?;
         unsafe {
             talc.claim(start as *mut u8, size).unwrap();
         }
@@ -122,8 +112,8 @@ unsafe impl Source for CustomClaim {
 
 #[cfg(feature = "user")]
 #[global_allocator]
-pub static ALLOCATOR: TalcLock<spin::mutex::Mutex<()>, CustomClaim, DefaultBinning> =
-    TalcLock::new(CustomClaim::empty());
+pub static ALLOCATOR: TalcLock<spin::mutex::Mutex<()>, CustomSource, DefaultBinning> =
+    TalcLock::new(CustomSource::empty());
 
 #[cfg(feature = "user")]
 #[cfg(target_arch = "riscv64")]
@@ -135,6 +125,8 @@ global_asm!(
         li a7, 4
         li a0, 0
         ecall
+    loop:
+        j loop
     "
 );
 
