@@ -1,10 +1,11 @@
 use core::{
     arch::{asm, global_asm},
     fmt::Debug,
-    mem::transmute,
+    mem::{self, transmute},
+    ptr::write_bytes,
 };
 use hal::{
-    constants::{TIME_SLICE, TRAMPOLINE, TRAPFRAME},
+    constants::{ERROR_PAGE, PAGE_SIZE, TIME_SLICE, TRAMPOLINE, TRAPFRAME},
     error::Error,
     interrupts::{InterruptHandling, SyscallArgs},
 };
@@ -131,25 +132,37 @@ pub struct TrapFrame {
     pub kernel_page_table: usize, // 272
     pub user_trap_address: usize, // 280
     pub satp: usize,       // 288
-    pub error: Option<Error>,
 }
 
 impl hal::interrupts::TrapFrame for TrapFrame {
     fn set_success_indicator(this: *mut Self, return_value: usize) {
         unsafe {
             (*this).a0 = return_value;
-        }
-    }
-
-    fn set_error(this: *mut Self, error: Error) {
-        unsafe {
-            (*this).error = Some(error);
+            write_bytes(ERROR_PAGE as *mut u8, 0, PAGE_SIZE);
         }
     }
 
     fn set_return_value(this: *mut Self, value: usize) {
         unsafe {
             (*this).a1 = value;
+        }
+    }
+
+    fn set_return_address(this: *mut Self, addr: usize) {
+        unsafe {
+            (*this).ra = addr;
+        }
+    }
+
+    fn set_sp(this: *mut Self, addr: usize) {
+        unsafe {
+            (*this).sp = addr;
+        }
+    }
+
+    fn set_entry_point(this: *mut Self, addr: usize) {
+        unsafe {
+            (*this).sepc = addr;
         }
     }
 }
@@ -303,13 +316,13 @@ impl InterruptHandling for Riscv {
         }
     }
 
-    fn make_sycall(args: SyscallArgs) -> Result<usize, usize> {
+    fn make_sycall(args: SyscallArgs) -> Result<usize, ()> {
         unsafe {
             asm!(
+                "mv a7, {}",
                 "mv a0, {}",
                 "mv a1, {}",
                 "mv a2, {}",
-                "mv a3, {}",
                 "ecall",
                 in(reg) args.0,
                 in(reg) args.1,
@@ -322,7 +335,21 @@ impl InterruptHandling for Riscv {
             let a1: usize;
             asm!("mv {}, a1", out(reg) a1);
 
-            if a0 != 0 { Err(a1) } else { Ok(a1) }
+            if a0 == 0 {
+                Ok(a1)
+            } else if a0 == 1 {
+                Err(())
+            } else {
+                panic!("Unexpected return value after syscall")
+            }
         }
+    }
+
+    fn intpc() -> impl Debug {
+        riscv::register::sepc::read()
+    }
+
+    fn intmem() -> impl Debug {
+        riscv::register::stval::read()
     }
 }
