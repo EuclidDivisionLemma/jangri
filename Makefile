@@ -1,17 +1,22 @@
-make: build
-	cd kernel && export RUSTFLAGS="-C force-frame-pointers=yes" && cargo run
+# BUILD_TYPE should be debug or release
+BUILD_TYPE=debug
 
-build: process1 process2
+make: build
+	cd kernel && cargo run
+
+build: sh fs
 	cd kernel && cargo build
 
 clean:
-	cd kernel && cargo clean
+	cargo clean
 
-init:
-	riscv64-unknown-elf-gcc -specs=picolibc.specs -nostartfiles -march=rv64imac_zicsr -mabi=lp64 -T./userspace/userspace.ld -fomit-frame-pointer ./userspace/crt0.S ./userspace/init.c ./userspace/syscalls.c -o ./userspace/init.elf
+sh:
+ifeq ($(BUILD_TYPE), debug)
+	cd ./userspace/src/sh && cargo build --target riscv64imac-unknown-none-elf
+else ifeq ($(BUILD_TYPE), release)
+	cd ./userspace/src/sh && cargo build --target riscv64imac-unknown-none-elf --release
+endif
+	cp ./target/riscv64imac-unknown-none-elf/$(BUILD_TYPE)/sh ./ramfs.img
+	# riscv64-unknown-elf-gcc -nostdlib -T./userspace/userspace.ld ./sh.S -o ./ramfs.img
 
-process1:
-	riscv64-unknown-elf-gcc -specs=picolibc.specs -nostartfiles -march=rv64imac_zicsr -mabi=lp64 -T./userspace/userspace.ld -fomit-frame-pointer ./userspace/crt0.S ./userspace/process1.c ./userspace/syscalls.c -o ./userspace/process1.elf
-
-process2:
-	riscv64-unknown-elf-gcc -specs=picolibc.specs -nostartfiles -march=rv64imac_zicsr -mabi=lp64 -T./userspace/userspace.ld -fomit-frame-pointer ./userspace/crt0.S ./userspace/process2.c ./userspace/syscalls.c -o ./userspace/process2.elf
+fs:
