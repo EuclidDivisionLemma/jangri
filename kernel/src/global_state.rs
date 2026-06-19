@@ -119,12 +119,13 @@ impl GlobalState {
         let processes = self.processes.read();
 
         for (pid, process) in processes.iter() {
-            let process = process.lock();
-
-            if let ProcessState::Sleeping { sleep_on: s } = &process.process_state
-                && *s == sleep_on
-            {
-                return Some(*pid);
+            // a process whose lock cannot be acquired is the current process
+            if let Some(process) = process.try_lock() {
+                if let ProcessState::Sleeping { sleep_on: s } = &process.process_state
+                    && *s == sleep_on
+                {
+                    return Some(*pid);
+                }
             }
         }
 

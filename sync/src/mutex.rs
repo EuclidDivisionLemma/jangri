@@ -74,15 +74,6 @@ unsafe impl<P: hal::vm::PageTableEntry, A: Hal<P>> lock_api::RawMutex for Mutex<
     fn try_lock(&self) -> bool {
         push::<P, A>();
 
-        if self.is_current_hart_holding() {
-            panic!(
-                "DEADLOCK: Hart {} called lock twice.\n",
-                self.holding_hart
-                    .load(core::sync::atomic::Ordering::Acquire)
-                    - 1,
-            );
-        }
-
         if let Err(_) = self.is_locked.compare_exchange(
             false,
             true,

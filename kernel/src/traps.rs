@@ -59,7 +59,7 @@ pub fn user_trap() {
             ARCH::handle_external_interrupt();
         } else if ARCH::is_exception() {
             let cause = Box::new(ARCH::cause());
-            let current_process = process.lock();
+            let mut current_process = process.lock();
             let name = current_process.name.clone();
             let id = current_process.id;
             uart::console_write(&format!(
@@ -72,7 +72,6 @@ pub fn user_trap() {
                 ARCH::intmem(),
             ));
             wake_up(state, id);
-            let mut current_process = process.lock();
             current_process.process_state = crate::process::ProcessState::Terminated {
                 return_value: Err(cause),
             };
