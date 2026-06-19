@@ -209,9 +209,7 @@ global_asm!(
 
 #[unsafe(no_mangle)]
 fn _exit() -> ! {
-    write_syscall(Syscall::Exit(Ok(0)));
-    make_syscall!(Syscall::Exit);
-    unreachable!()
+    exit(Ok(0))
 }
 
 #[cfg(feature = "user")]
