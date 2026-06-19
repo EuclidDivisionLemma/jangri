@@ -1,0 +1,14 @@
+[package]
+name = "userspace"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "sh"
+path = "./src/sh/main.rs"
+
+[dependencies]
+janglib = {workspace = true, features = ["user"]}
+
+[build-dependencies]
+cc = "1.2.48"
