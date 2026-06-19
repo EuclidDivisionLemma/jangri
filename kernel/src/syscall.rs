@@ -42,6 +42,7 @@ pub fn handle(state: &'static GlobalState) {
         let process = locked_process.lock();
         (process.trapframe, process.page_table)
     };
+    ARCH::handle_syscall(trapframe);
 
     let syscall = {
         let mut syscall_page = UserMemorySlice::<false, _>::new(

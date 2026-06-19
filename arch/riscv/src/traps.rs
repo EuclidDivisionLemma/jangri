@@ -294,4 +294,10 @@ impl InterruptHandling for Riscv {
     fn intmem() -> impl Debug {
         riscv::register::stval::read()
     }
+
+    fn handle_syscall(trapframe: *mut TrapFrame) {
+        unsafe {
+            (*trapframe).sepc += 4;
+        }
+    }
 }
