@@ -135,19 +135,6 @@ pub struct TrapFrame {
 }
 
 impl hal::interrupts::TrapFrame for TrapFrame {
-    fn set_success_indicator(this: *mut Self, return_value: usize) {
-        unsafe {
-            (*this).a0 = return_value;
-            write_bytes(KUCOM_PAGE as *mut u8, 0, PAGE_SIZE);
-        }
-    }
-
-    fn set_return_value(this: *mut Self, value: usize) {
-        unsafe {
-            (*this).a1 = value;
-        }
-    }
-
     fn set_return_address(this: *mut Self, addr: usize) {
         unsafe {
             (*this).ra = addr;

@@ -28,8 +28,6 @@ pub trait InterruptHandling {
 }
 
 pub trait TrapFrame {
-    fn set_success_indicator(this: *mut Self, status: usize);
-    fn set_return_value(this: *mut Self, value: usize);
     fn set_return_address(this: *mut Self, addr: usize);
     fn set_sp(this: *mut Self, addr: usize);
     fn set_entry_point(this: *mut Self, addr: usize);
