@@ -65,23 +65,15 @@ pub fn write_char(byte: u8) {
     TX_BUSY.store(false, core::sync::atomic::Ordering::Release);
 }
 
-pub fn write_char_waiting(byte: u8) {
-    while read(LSR) & (1 << 5) == 0 {
-        core::hint::spin_loop();
-    }
-
-    write(THR, byte);
-}
-
 pub fn console_write(text: &str) {
     for byte in text.bytes() {
         if byte == '\n' as u8 || byte == '\r' as u8 {
             write_char('\n' as u8);
             write_char('\r' as u8);
         } else if byte == 0x7f || byte == 0x08 {
-            write_char_waiting(0x7f);
-            write_char_waiting(' ' as u8);
-            write_char_waiting(0x7f);
+            write_char(0x7f);
+            write_char(' ' as u8);
+            write_char(0x7f);
         } else {
             write_char(byte);
         }
@@ -94,9 +86,9 @@ pub fn console_write_bytes(bytes: &[u8]) {
             write_char('\n' as u8);
             write_char('\r' as u8);
         } else if *byte == 0x7f || *byte == 0x08 {
-            write_char_waiting(0x7f);
-            write_char_waiting(' ' as u8);
-            write_char_waiting(0x7f);
+            write_char(0x7f);
+            write_char(' ' as u8);
+            write_char(0x7f);
         } else {
             write_char(*byte);
         }
@@ -117,15 +109,15 @@ pub fn handle_interrupt() {
             match read_char() {
                 Some(v) => {
                     if v == '\n' as u8 || v == '\r' as u8 {
-                        write_char_waiting('\n' as u8);
-                        write_char_waiting('\r' as u8);
+                        write_char('\n' as u8);
+                        write_char('\r' as u8);
 
                         input_buffer.enqueue('\n' as u8);
                     } else if v == 0x7f || v == 0x08 {
                         if unsafe { CURSOR_POSITION } > 0 {
-                            write_char_waiting(0x08);
-                            write_char_waiting(' ' as u8);
-                            write_char_waiting(0x08);
+                            write_char(0x08);
+                            write_char(' ' as u8);
+                            write_char(0x08);
 
                             input_buffer.enqueue(v);
 
