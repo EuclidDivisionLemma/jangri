@@ -201,13 +201,18 @@ global_asm!(
     .global _start
     _start:
         call main
-        li a7, 4
-        li a0, 0
-        ecall
+        call _exit
     loop:
         j loop
     "
 );
+
+#[unsafe(no_mangle)]
+fn _exit() -> ! {
+    write_syscall(Syscall::Exit(Ok(0)));
+    make_syscall!(Syscall::Exit);
+    unreachable!()
+}
 
 #[cfg(feature = "user")]
 #[panic_handler]
