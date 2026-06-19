@@ -5,7 +5,7 @@ use core::{
     ptr::write_bytes,
 };
 use hal::{
-    constants::{ERROR_PAGE, PAGE_SIZE, TIME_SLICE, TRAMPOLINE, TRAPFRAME},
+    constants::{KUCOM_PAGE, PAGE_SIZE, TIME_SLICE, TRAMPOLINE, TRAPFRAME},
     error::Error,
     interrupts::{InterruptHandling, SyscallArgs},
 };
@@ -138,7 +138,7 @@ impl hal::interrupts::TrapFrame for TrapFrame {
     fn set_success_indicator(this: *mut Self, return_value: usize) {
         unsafe {
             (*this).a0 = return_value;
-            write_bytes(ERROR_PAGE as *mut u8, 0, PAGE_SIZE);
+            write_bytes(KUCOM_PAGE as *mut u8, 0, PAGE_SIZE);
         }
     }
 
@@ -316,32 +316,9 @@ impl InterruptHandling for Riscv {
         }
     }
 
-    fn make_sycall(args: SyscallArgs) -> Result<usize, ()> {
+    fn make_sycall() {
         unsafe {
-            asm!(
-                "mv a7, {}",
-                "mv a0, {}",
-                "mv a1, {}",
-                "mv a2, {}",
-                "ecall",
-                in(reg) args.0,
-                in(reg) args.1,
-                in(reg) args.2,
-                in(reg) args.3
-            );
-
-            let a0: usize;
-            asm!("mv {}, a0", out(reg) a0);
-            let a1: usize;
-            asm!("mv {}, a1", out(reg) a1);
-
-            if a0 == 0 {
-                Ok(a1)
-            } else if a0 == 1 {
-                Err(())
-            } else {
-                panic!("Unexpected return value after syscall")
-            }
+            asm!("ecall");
         }
     }
 

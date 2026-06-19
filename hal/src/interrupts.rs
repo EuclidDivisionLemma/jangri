@@ -24,7 +24,7 @@ pub trait InterruptHandling {
     fn set_user_mode_trap_handler();
     fn set_supervisor_mode_trap_handler();
     fn set_up_supervisor_to_user_mode_transition(trapframe: *const Self::TRAPFRAME);
-    fn make_sycall(args: SyscallArgs) -> Result<usize, ()>;
+    fn make_sycall();
 }
 
 pub trait TrapFrame {
