@@ -53,14 +53,6 @@ pub(crate) fn write_syscall(syscall: Syscall) {
     }
 }
 
-fn get_syscall_result() -> SyscallResult {
-    let result = unsafe { *(KUCOM_PAGE as *mut SyscallResult) };
-    unsafe {
-        *(KUCOM_PAGE as *mut u8) = mem::zeroed();
-    }
-    result
-}
-
 #[macro_export]
 macro_rules! make_syscall {
     (Syscall::WantMemory) => {
