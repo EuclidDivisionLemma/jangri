@@ -1,5 +1,5 @@
 use alloc::{format, sync::Arc};
-use core::arch::global_asm;
+use core::arch::{asm, global_asm};
 use hal::{constants::PAGE_SIZE, interrupts::InterruptHandling};
 use riscv_arch::uart;
 
@@ -44,7 +44,7 @@ unsafe extern "C" {
     /// Called inside scheduler to switch from scheduler context to process context
     /// and called inside `switch_to_scheduler_context` to switch from process context
     /// to scheduler context.
-    fn switch_context(old: usize, new: usize) -> !;
+    fn switch_context(old: usize, new: usize);
 }
 
 global_asm!(
@@ -103,10 +103,10 @@ pub fn schedule(state: &GlobalState) -> ! {
 
             let scheduler_context = &raw const state.scheduler_context as *mut Context;
 
+            state.set_current_process(locked_process.clone());
             unsafe {
-                state.set_current_process(locked_process.clone());
-                switch_context(scheduler_context.addr(), context.addr());
                 found = true;
+                switch_context(scheduler_context.addr(), context.addr());
             }
         }
 
@@ -117,7 +117,7 @@ pub fn schedule(state: &GlobalState) -> ! {
 }
 
 /// Switches from the current process context to the scheduler context.
-pub fn switch_to_scheduler_context(state: &GlobalState) -> ! {
+pub fn switch_to_scheduler_context(state: &GlobalState) {
     let context = {
         let process: Arc<Mutex<Process>> = state.get_current_process().unwrap();
         let process = process.lock();

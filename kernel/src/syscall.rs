@@ -149,17 +149,20 @@ pub fn want_memory(state: &GlobalState, size: usize) -> Result<(usize, usize)> {
 }
 
 fn exit(state: &GlobalState, status: Result<usize>) -> ! {
-    let current_process = state.get_current_process().unwrap();
-    let mut current_process = current_process.lock();
-    current_process.process_state = ProcessState::Terminated {
-        return_value: match status {
-            Ok(v) => Ok(v),
-            Err(e) => Err(Box::new(e)),
-        },
-    };
-    state
-        .cleanup_page_table(current_process.page_table)
-        .unwrap();
-    drop(current_process);
+    {
+        let current_process = state.get_current_process().unwrap();
+        let mut current_process = current_process.lock();
+        current_process.process_state = ProcessState::Terminated {
+            return_value: match status {
+                Ok(v) => Ok(v),
+                Err(e) => Err(Box::new(e)),
+            },
+        };
+        // currently clean up fails
+        // state
+        //     .cleanup_page_table(current_process.page_table)
+        //     .unwrap();
+    }
     switch_to_scheduler_context(state);
+    unreachable!("EXIT UNREACHABLE");
 }
