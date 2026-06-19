@@ -44,7 +44,7 @@ pub enum Syscall {
 pub enum SyscallResult {
     WantMemory(Result<(usize, usize)>),
     Write(Result<usize>),
-    ReadChar(Result<char>),
+    ReadChar(Result<Option<char>>),
     Exit,
     Spawn(Result<()>),
     Yield,
@@ -108,7 +108,7 @@ macro_rules! make_syscall {
     (Syscall::ReadChar) => {
         hal::interrupts::make_syscall();
 
-        pub fn check() -> Result<char> {
+        pub fn check() -> Result<Option<char>> {
             let result = get_result();
             match result {
                 SyscallResult::ReadChar(v) => v,
