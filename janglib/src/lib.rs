@@ -34,7 +34,7 @@ pub enum Syscall {
     WantMemory(usize),
     Write(usize, usize),
     ReadChar,
-    Exit(usize),
+    Exit(Result<usize>),
     Spawn(usize, usize),
 }
 
@@ -131,7 +131,7 @@ macro_rules! make_syscall {
     };
 }
 
-pub fn exit(status: usize) -> ! {
+pub fn exit(status: Result<usize>) -> ! {
     write_syscall(Syscall::Exit(status));
     make_syscall!(Syscall::Exit);
     check();
