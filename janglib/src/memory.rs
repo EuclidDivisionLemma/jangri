@@ -1,12 +1,13 @@
-use core::{alloc::GlobalAlloc, ptr::null_mut, slice};
+use core::{alloc::GlobalAlloc, arch::asm, ptr::null_mut, slice};
 
 use alloc::vec::Vec;
 use hal::{
     error::{Error, Result},
     interrupts::InterruptHandling,
+    vm::align_to_page_size,
 };
 
-use crate::{ARCH, Syscall, get_error};
+use crate::{KUCOM_PAGE, Syscall, SyscallResult, get_error, make_syscall, write_syscall};
 
 pub struct UserMemorySlice<const WRITABLE: bool, F: Fn(usize, usize) -> Result<usize>> {
     start: usize,
@@ -47,10 +48,8 @@ impl<F: Fn(usize, usize) -> Result<usize>> UserMemorySlice<true, F> {
 }
 
 pub fn want_memory(size: usize) -> Result<(usize, usize)> {
-    let mut args = hal::interrupts::SyscallArgs::default();
-    args.0 = Syscall::WantMemory as usize;
-    args.1 = hal::vm::align_to_page_size(size).next_power_of_two();
-    ARCH::make_sycall(args)
-        .map(|start| (start, args.1))
-        .map_err(|_| unsafe { get_error() })
+    let size = align_to_page_size(size);
+    write_syscall(Syscall::WantMemory(size));
+    make_syscall!(Syscall::WantMemory);
+    check()
 }

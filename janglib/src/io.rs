@@ -1,20 +1,18 @@
-use crate::{ARCH, Syscall};
+use crate::{KUCOM_PAGE, Syscall, SyscallResult, make_syscall, write_syscall};
 use alloc::string::String;
 use core::{arch::asm, panic::PanicInfo};
-use hal::interrupts::InterruptHandling;
+use hal::{error::Result, interrupts::InterruptHandling};
 
 pub fn write(text: &str) {
-    let mut args = hal::interrupts::SyscallArgs::default();
-    args.0 = Syscall::Write as usize;
-    args.1 = text.as_ptr().addr();
-    args.2 = text.len();
-    assert!(ARCH::make_sycall(args).unwrap() == args.2);
+    write_syscall(Syscall::Write(text.as_ptr().addr(), text.len()));
+    make_syscall!(Syscall::Write);
+    assert!(check().unwrap() == text.len());
 }
 
 fn read_char() -> char {
-    let mut args = hal::interrupts::SyscallArgs::default();
-    args.0 = Syscall::ReadChar as usize;
-    ARCH::make_sycall(args).unwrap() as u8 as char
+    write_syscall(Syscall::ReadChar);
+    make_syscall!(Syscall::ReadChar);
+    check().unwrap()
 }
 
 pub fn read() -> String {

@@ -1,14 +1,18 @@
 #![no_std]
 
+use core::arch::asm;
 #[cfg(target_arch = "riscv64")]
 #[cfg(feature = "user")]
 use core::arch::global_asm;
 #[cfg(feature = "user")]
 use core::panic::PanicInfo;
-use core::ptr::{write_bytes, write_volatile};
+use core::{
+    mem,
+    ptr::{write_bytes, write_volatile},
+};
 
 use hal::{
-    constants::{ERROR_PAGE, PAGE_SIZE, TRAPFRAME},
+    constants::{KUCOM_PAGE, PAGE_SIZE, TRAPFRAME},
     error::{Error, Result},
     interrupts::InterruptHandling,
 };
@@ -26,61 +30,132 @@ pub mod memory;
 #[cfg(not(feature = "user"))]
 pub mod ramfs;
 
-pub type ARCH = riscv_arch::Riscv;
-
 pub enum Syscall {
-    WantMemory = 1,
-    Write = 2,
-    ReadChar = 3,
-    Exit = 4,
-    Spawn = 5,
+    WantMemory(usize),
+    Write(usize, usize),
+    ReadChar,
+    Exit(usize),
+    Spawn(usize, usize),
 }
 
-pub const SYSCALLS: [(Syscall, usize); 5] = [
-    (Syscall::WantMemory, 1),
-    (Syscall::Write, 2),
-    (Syscall::ReadChar, 3),
-    (Syscall::Exit, 4),
-    (Syscall::Spawn, 5),
-];
+#[derive(Debug, Clone, Copy)]
+pub enum SyscallResult {
+    WantMemory(Result<(usize, usize)>),
+    Write(Result<usize>),
+    ReadChar(Result<char>),
+    Exit,
+    Spawn(Result<()>),
+}
 
-impl TryFrom<usize> for Syscall {
-    type Error = hal::error::Error;
-
-    fn try_from(value: usize) -> Result<Self> {
-        Ok(match value {
-            1 => Syscall::WantMemory,
-            2 => Syscall::Write,
-            3 => Syscall::ReadChar,
-            4 => Syscall::Exit,
-            5 => Syscall::Spawn,
-            _ => return Err(hal::error::Error::InvalidSyscallNo(value)),
-        })
+pub(crate) fn write_syscall(syscall: Syscall) {
+    unsafe {
+        *(KUCOM_PAGE as *mut Syscall) = syscall;
     }
 }
 
+fn get_syscall_result() -> SyscallResult {
+    let result = unsafe { *(KUCOM_PAGE as *mut SyscallResult) };
+    unsafe {
+        *(KUCOM_PAGE as *mut u8) = mem::zeroed();
+    }
+    result
+}
+
+#[macro_export]
+macro_rules! make_syscall {
+    (Syscall::WantMemory) => {
+        #[cfg(target_arch = "riscv64")]
+        unsafe {
+            asm!("ecall");
+        };
+        pub fn check() -> Result<(usize, usize)> {
+            let result = unsafe { *(KUCOM_PAGE as *const SyscallResult) };
+
+            match result {
+                SyscallResult::WantMemory(v) => v,
+                _ => panic!(),
+            }
+        }
+    };
+
+    (Syscall::Write) => {
+        #[cfg(target_arch = "riscv64")]
+        unsafe {
+            asm!("ecall");
+        };
+
+        pub fn check() -> Result<usize> {
+            let result = unsafe { *(KUCOM_PAGE as *const SyscallResult) };
+            match result {
+                SyscallResult::Write(v) => v,
+                _ => panic!(),
+            }
+        }
+    };
+
+    (Syscall::ReadChar) => {
+        #[cfg(target_arch = "riscv64")]
+        unsafe {
+            asm!("ecall");
+        };
+
+        pub fn check() -> Result<char> {
+            let result = unsafe { *(KUCOM_PAGE as *const SyscallResult) };
+            match result {
+                SyscallResult::ReadChar(v) => v,
+                _ => panic!(),
+            }
+        }
+    };
+
+    (Syscall::Exit) => {
+        #[cfg(target_arch = "riscv64")]
+        unsafe {
+            asm!("ecall");
+        };
+
+        pub fn check() -> () {
+            let result = unsafe { *(KUCOM_PAGE as *const SyscallResult) };
+            match result {
+                SyscallResult::Exit => (),
+                _ => panic!(),
+            }
+        }
+    };
+
+    (Syscall::Spawn) => {
+        #[cfg(target_arch = "riscv64")]
+        unsafe {
+            asm!("ecall");
+        };
+
+        pub fn check() -> Result<()> {
+            let result = unsafe { *(KUCOM_PAGE as *const SyscallResult) };
+            match result {
+                SyscallResult::Spawn(v) => v,
+                _ => panic!(),
+            }
+        }
+    };
+}
+
 pub fn exit(status: usize) -> ! {
-    let mut args = hal::interrupts::SyscallArgs::default();
-    args.0 = Syscall::Exit as usize;
-    args.1 = status;
-    ARCH::make_sycall(args).unwrap();
+    write_syscall(Syscall::Exit(status));
+    make_syscall!(Syscall::Exit);
+    check();
     unreachable!()
 }
 
 pub fn spawn(executable: usize, size: usize) -> Result<()> {
-    let mut args = hal::interrupts::SyscallArgs::default();
-    args.0 = Syscall::Spawn as usize;
-    args.1 = executable;
-    args.2 = size;
-    ARCH::make_sycall(args)
-        .map(|_| ())
-        .map_err(|_| unsafe { get_error() })
+    write_syscall(Syscall::Spawn(executable, size));
+    make_syscall!(Syscall::Spawn);
+    check()
 }
 
 pub unsafe fn get_error() -> Error {
-    let e = unsafe { *(ERROR_PAGE as *const Error) };
+    let e = unsafe { *(KUCOM_PAGE as *const Error) };
     unsafe {
-        write_bytes(ERROR_PAGE as *mut u8, 0, PAGE_SIZE);
+        write_bytes(KUCOM_PAGE as *mut u8, 0, PAGE_SIZE);
     }
     e
 }
