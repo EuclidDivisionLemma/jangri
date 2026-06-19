@@ -13,4 +13,5 @@ pub enum Error {
     MemoryNotAvailable,
     InvalidSyscallNo(usize),
     ELFError,
+    ExplicitPanic,
 }

@@ -201,5 +201,5 @@ global_asm!(
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
     io::write("PANIC");
-    exit(1);
+    exit(Err(Error::ExplicitPanic));
 }
