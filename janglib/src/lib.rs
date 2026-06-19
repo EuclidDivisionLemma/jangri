@@ -218,3 +218,24 @@ fn panic(info: &PanicInfo) -> ! {
     io::write("PANIC");
     exit(Err(Error::ExplicitPanic));
 }
+
+#[macro_export]
+macro_rules! print {
+    ($($x: expr,)*) => {
+        janglib::io::write(&format!($($x,)*));
+    };
+    ($x: expr) => {
+        janglib::io::write($x);
+    };
+}
+
+#[macro_export]
+macro_rules! println {
+    ($($x: expr),*) => {
+        print!($($x,)*);
+        janglib::io::write("\n");
+    };
+    ($x: expr) => {
+        janglib::io::write($x);
+    };
+}
