@@ -82,12 +82,15 @@ pub fn handle(state: &'static GlobalState) {
                 SyscallInfo::SyscallResult(SyscallResult::Write(Ok(len)))
             }
             Syscall::ReadChar => {
-                let mut ch = uart::read_char();
+                let mut ibf = INPUT_BUFFER.lock();
 
-                while let None = ch {
-                    ch = uart::read_char();
-                }
-                SyscallInfo::SyscallResult(SyscallResult::ReadChar(Ok(ch.unwrap() as char)))
+                SyscallInfo::SyscallResult(SyscallResult::ReadChar(Ok(
+                    if let Some(ch) = ibf.dequeue() {
+                        Some(ch as char)
+                    } else {
+                        None
+                    },
+                )))
             }
             Syscall::Exit(status) => {
                 exit(state, status);
