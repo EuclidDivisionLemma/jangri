@@ -122,7 +122,10 @@ impl VirtualMemory<PageTableEntry> for Riscv {
         }?;
 
         if unsafe { !(*page_table_entry).is_valid() } {
-            panic!();
+            return Err(Error::NoSuchVirtualAddress {
+                va,
+                pt: page_table.addr(),
+            });
         }
 
         Ok(unsafe { (*page_table_entry).get_physical_address() } + offset)
