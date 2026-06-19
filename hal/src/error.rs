@@ -11,7 +11,7 @@ pub enum Error {
     SizeMisaligned(usize),
     ZeroSize,
     MemoryNotAvailable,
-    InvalidSyscallNo(usize),
+    NotASyscall,
     ELFError,
     ExplicitPanic,
 }

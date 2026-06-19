@@ -7,7 +7,7 @@ use core::{
 use hal::{
     constants::{KUCOM_PAGE, PAGE_SIZE, TIME_SLICE, TRAMPOLINE, TRAPFRAME},
     error::Error,
-    interrupts::{InterruptHandling, SyscallArgs},
+    interrupts::InterruptHandling,
 };
 use riscv::{
     interrupt::{
@@ -256,22 +256,6 @@ impl InterruptHandling for Riscv {
         }
     }
 
-    fn handle_syscall(trapframe: *mut Self::TRAPFRAME) -> hal::interrupts::SyscallArgs {
-        let syscall_no = unsafe { (*trapframe).a7 };
-        let mut args = SyscallArgs::default();
-        args.0 = syscall_no;
-
-        unsafe {
-            (*trapframe).sepc += 4;
-
-            args.1 = (*trapframe).a0;
-            args.2 = (*trapframe).a1;
-            args.3 = (*trapframe).a2;
-        }
-
-        args
-    }
-
     fn cause() -> impl Debug {
         let cause = riscv::register::scause::read();
         cause.cause()
@@ -300,12 +284,6 @@ impl InterruptHandling for Riscv {
             riscv::register::sepc::write((*trapframe).sepc);
             riscv::register::sstatus::set_spp(riscv::register::sstatus::SPP::User);
             riscv::register::sstatus::set_spie();
-        }
-    }
-
-    fn make_sycall() {
-        unsafe {
-            asm!("ecall");
         }
     }
 

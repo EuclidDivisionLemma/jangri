@@ -30,6 +30,7 @@ pub mod memory;
 #[cfg(not(feature = "user"))]
 pub mod ramfs;
 
+#[derive(Debug, Clone, Copy)]
 pub enum Syscall {
     WantMemory(usize),
     Write(usize, usize),
@@ -49,21 +50,41 @@ pub enum SyscallResult {
     Yield,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum SyscallInfo {
+    Syscall(Syscall),
+    SyscallResult(SyscallResult),
+    Empty,
+}
+
 pub(crate) fn write_syscall(syscall: Syscall) {
     unsafe {
-        *(KUCOM_PAGE as *mut Syscall) = syscall;
+        *(KUCOM_PAGE as *mut SyscallInfo) = SyscallInfo::Syscall(syscall);
     }
+}
+
+pub(crate) fn get_result() -> SyscallResult {
+    let result = {
+        let result = unsafe { *(KUCOM_PAGE as *const SyscallInfo) };
+        if let SyscallInfo::SyscallResult(r) = result {
+            r
+        } else {
+            panic!();
+        }
+    };
+    unsafe {
+        write_volatile(KUCOM_PAGE as *mut SyscallInfo, SyscallInfo::Empty);
+    }
+    result
 }
 
 #[macro_export]
 macro_rules! make_syscall {
     (Syscall::WantMemory) => {
-        #[cfg(target_arch = "riscv64")]
-        unsafe {
-            asm!("ecall");
-        };
+        hal::interrupts::make_syscall();
+
         pub fn check() -> Result<(usize, usize)> {
-            let result = unsafe { *(KUCOM_PAGE as *const SyscallResult) };
+            let result = get_result();
 
             match result {
                 SyscallResult::WantMemory(v) => v,
@@ -73,13 +94,10 @@ macro_rules! make_syscall {
     };
 
     (Syscall::Write) => {
-        #[cfg(target_arch = "riscv64")]
-        unsafe {
-            asm!("ecall");
-        };
+        hal::interrupts::make_syscall();
 
         pub fn check() -> Result<usize> {
-            let result = unsafe { *(KUCOM_PAGE as *const SyscallResult) };
+            let result = get_result();
             match result {
                 SyscallResult::Write(v) => v,
                 _ => panic!(),
@@ -88,13 +106,10 @@ macro_rules! make_syscall {
     };
 
     (Syscall::ReadChar) => {
-        #[cfg(target_arch = "riscv64")]
-        unsafe {
-            asm!("ecall");
-        };
+        hal::interrupts::make_syscall();
 
         pub fn check() -> Result<char> {
-            let result = unsafe { *(KUCOM_PAGE as *const SyscallResult) };
+            let result = get_result();
             match result {
                 SyscallResult::ReadChar(v) => v,
                 _ => panic!(),
@@ -103,13 +118,10 @@ macro_rules! make_syscall {
     };
 
     (Syscall::Exit) => {
-        #[cfg(target_arch = "riscv64")]
-        unsafe {
-            asm!("ecall");
-        };
+        hal::interrupts::make_syscall();
 
         pub fn check() -> () {
-            let result = unsafe { *(KUCOM_PAGE as *const SyscallResult) };
+            let result = get_result();
             match result {
                 SyscallResult::Exit => (),
                 _ => panic!(),
@@ -118,13 +130,10 @@ macro_rules! make_syscall {
     };
 
     (Syscall::Spawn) => {
-        #[cfg(target_arch = "riscv64")]
-        unsafe {
-            asm!("ecall");
-        };
+        hal::interrupts::make_syscall();
 
         pub fn check() -> Result<()> {
-            let result = unsafe { *(KUCOM_PAGE as *const SyscallResult) };
+            let result = get_result();
             match result {
                 SyscallResult::Spawn(v) => v,
                 _ => panic!(),
@@ -133,10 +142,7 @@ macro_rules! make_syscall {
     };
 
     (Syscall::Yield) => {
-        #[cfg(target_arch = "riscv64")]
-        unsafe {
-            asm!("ecall");
-        };
+        hal::interrupts::make_syscall();
     };
 }
 

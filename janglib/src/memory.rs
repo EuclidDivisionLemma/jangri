@@ -7,7 +7,7 @@ use hal::{
     vm::align_to_page_size,
 };
 
-use crate::{KUCOM_PAGE, Syscall, SyscallResult, make_syscall, write_syscall};
+use crate::{KUCOM_PAGE, Syscall, SyscallResult, get_result, make_syscall, write_syscall};
 
 pub struct UserMemorySlice<const WRITABLE: bool, F: Fn(usize, usize) -> Result<usize>> {
     start: usize,

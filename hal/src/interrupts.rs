@@ -17,14 +17,12 @@ pub trait InterruptHandling {
     fn is_exception() -> bool;
     fn is_syscall() -> bool;
     fn handle_external_interrupt();
-    fn handle_syscall(trapframe: *mut Self::TRAPFRAME) -> SyscallArgs;
     fn cause() -> impl Debug;
     fn intpc() -> impl Debug;
     fn intmem() -> impl Debug;
     fn set_user_mode_trap_handler();
     fn set_supervisor_mode_trap_handler();
     fn set_up_supervisor_to_user_mode_transition(trapframe: *const Self::TRAPFRAME);
-    fn make_sycall();
 }
 
 pub trait TrapFrame {
@@ -33,5 +31,10 @@ pub trait TrapFrame {
     fn set_entry_point(this: *mut Self, addr: usize);
 }
 
-#[derive(Default, Clone, Copy)]
-pub struct SyscallArgs(pub usize, pub usize, pub usize, pub usize);
+pub fn make_syscall() {
+    #[cfg(target_arch = "riscv64")]
+    use core::arch::asm;
+    unsafe {
+        asm!("ecall");
+    }
+}

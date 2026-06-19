@@ -4,9 +4,9 @@ use alloc::{boxed::Box, sync::Arc};
 use hal::{
     constants::{KUCOM_PAGE, PAGE_SIZE, STACK_GUARD},
     error::{Error, Result},
-    interrupts::{InterruptHandling, SyscallArgs},
+    interrupts::InterruptHandling,
 };
-use janglib::{Syscall, SyscallResult, memory::UserMemorySlice};
+use janglib::{Syscall, SyscallInfo, SyscallResult, memory::UserMemorySlice};
 use ringbuffer::RingBuffer;
 use riscv_arch::uart::{self, INPUT_BUFFER};
 
@@ -51,14 +51,25 @@ pub fn handle(state: &'static GlobalState) {
             |va: usize, page_table: usize| state.va2pa(page_table, va),
         );
         let syscall_vec = syscall_page.read_to_vec();
-        let mut syscall_buf = [0u8; size_of::<Syscall>()];
-        syscall_buf.copy_from_slice(&syscall_vec[0..size_of::<Syscall>()]);
-        unsafe { mem::transmute::<_, Syscall>(syscall_buf) }
+        let mut syscall_buf = [0u8; size_of::<SyscallInfo>()];
+        syscall_buf.copy_from_slice(&syscall_vec[0..size_of::<SyscallInfo>()]);
+        match unsafe { mem::transmute::<_, SyscallInfo>(syscall_buf) } {
+            SyscallInfo::Syscall(syscall) => syscall,
+            SyscallInfo::SyscallResult(syscall_result) => {
+                panic!(
+                    "Expected Syscall, found SyscallInfo::SyscallResult::{:?}\n",
+                    syscall_result
+                )
+            }
+            SyscallInfo::Empty => panic!("Expected Syscall, found SyscallInfo::Empty\n"),
+        }
     };
 
-    let result = || -> SyscallResult {
+    let result = || -> SyscallInfo {
         match syscall {
-            Syscall::WantMemory(size) => SyscallResult::WantMemory(want_memory(state, size)),
+            Syscall::WantMemory(size) => {
+                SyscallInfo::SyscallResult(SyscallResult::WantMemory(want_memory(state, size)))
+            }
             Syscall::Write(start, len) => {
                 let slice = janglib::memory::UserMemorySlice::<false, _>::new(
                     start,
@@ -67,7 +78,7 @@ pub fn handle(state: &'static GlobalState) {
                     |va, page_table| state.va2pa(page_table, va),
                 );
                 uart::console_write(str::from_utf8(slice.read()).unwrap());
-                SyscallResult::Write(Ok(len))
+                SyscallInfo::SyscallResult(SyscallResult::Write(Ok(len)))
             }
             Syscall::ReadChar => {
                 let mut ch = uart::read_char();
@@ -75,11 +86,11 @@ pub fn handle(state: &'static GlobalState) {
                 while let None = ch {
                     ch = uart::read_char();
                 }
-                SyscallResult::ReadChar(Ok(ch.unwrap() as char))
+                SyscallInfo::SyscallResult(SyscallResult::ReadChar(Ok(ch.unwrap() as char)))
             }
             Syscall::Exit(status) => {
                 exit(state, status);
-                SyscallResult::Exit
+                SyscallInfo::SyscallResult(SyscallResult::Exit)
             }
             Syscall::Spawn(start, len) => {
                 let s = || -> Result<()> {
@@ -97,11 +108,11 @@ pub fn handle(state: &'static GlobalState) {
                     Ok(())
                 };
 
-                SyscallResult::Spawn(s())
+                SyscallInfo::SyscallResult(SyscallResult::Spawn(s()))
             }
             Syscall::Yield => {
                 yield_cpu(state);
-                SyscallResult::Yield
+                SyscallInfo::SyscallResult(SyscallResult::Yield)
             }
         }
     };
@@ -113,8 +124,8 @@ pub fn handle(state: &'static GlobalState) {
         PAGE_SIZE,
         |va: usize, page_table: usize| state.va2pa(page_table, va),
     );
-    let result_buf: [u8; size_of::<SyscallResult>()] =
-        unsafe { mem::transmute::<_, [u8; size_of::<SyscallResult>()]>(result) };
+    let result_buf: [u8; size_of::<SyscallInfo>()] =
+        unsafe { mem::transmute::<_, [u8; size_of::<SyscallInfo>()]>(result) };
     result_page.write(result_buf.as_slice());
 }
 

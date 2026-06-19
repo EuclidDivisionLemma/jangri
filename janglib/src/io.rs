@@ -1,4 +1,4 @@
-use crate::{KUCOM_PAGE, Syscall, SyscallResult, make_syscall, write_syscall};
+use crate::{KUCOM_PAGE, Syscall, SyscallResult, get_result, make_syscall, write_syscall};
 use alloc::string::String;
 use core::{arch::asm, panic::PanicInfo};
 use hal::{error::Result, interrupts::InterruptHandling};
