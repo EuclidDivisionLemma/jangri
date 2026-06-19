@@ -62,7 +62,6 @@ name = "janglib"
 version = "0.1.0"
 dependencies = [
  "hal",
- "riscv_arch",
  "spin",
  "talc 5.0.3",
 ]

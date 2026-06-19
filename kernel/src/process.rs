@@ -21,7 +21,7 @@ use elf::{
 };
 use hal::{
     Hal,
-    constants::{ERROR_PAGE, PAGE_SIZE, STACK_PAGES, TRAMPOLINE, TRAPFRAME},
+    constants::{KUCOM_PAGE, PAGE_SIZE, STACK_PAGES, TRAMPOLINE, TRAPFRAME},
     vm::align_to_page_size,
 };
 use hal::{
@@ -271,7 +271,7 @@ pub fn map_other_pages(
     let error_page = state.allocate(PAGE_SIZE)?;
 
     state.map(
-        page_table, ERROR_PAGE, error_page, PAGE_SIZE, true, true, false, true,
+        page_table, KUCOM_PAGE, error_page, PAGE_SIZE, true, true, false, true,
     )?;
 
     unsafe {
