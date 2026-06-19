@@ -6,14 +6,16 @@ use hal::{
     error::{Error, Result},
     interrupts::{InterruptHandling, SyscallArgs},
 };
-use janglib::{Syscall, SyscallResult, get_error, memory::UserMemorySlice};
+use janglib::{Syscall, SyscallResult, memory::UserMemorySlice};
 use ringbuffer::RingBuffer;
 use riscv_arch::uart::{self, INPUT_BUFFER};
 
 use crate::{
     ARCH, Mutex, TrapFrame,
     global_state::GlobalState,
-    process::{self, Process, ProcessState, assign_process, prepare_first_time_execution},
+    process::{
+        self, Process, ProcessState, assign_process, prepare_first_time_execution, yield_cpu,
+    },
     scheduler::switch_to_scheduler_context,
 };
 
@@ -96,6 +98,10 @@ pub fn handle(state: &'static GlobalState) {
                 };
 
                 SyscallResult::Spawn(s())
+            }
+            Syscall::Yield => {
+                yield_cpu(state);
+                SyscallResult::Yield
             }
         }
     };

@@ -36,6 +36,7 @@ pub enum Syscall {
     ReadChar,
     Exit(Result<usize>),
     Spawn(usize, usize),
+    Yield,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -45,6 +46,7 @@ pub enum SyscallResult {
     ReadChar(Result<char>),
     Exit,
     Spawn(Result<()>),
+    Yield,
 }
 
 pub(crate) fn write_syscall(syscall: Syscall) {
@@ -129,6 +131,13 @@ macro_rules! make_syscall {
             }
         }
     };
+
+    (Syscall::Yield) => {
+        #[cfg(target_arch = "riscv64")]
+        unsafe {
+            asm!("ecall");
+        };
+    };
 }
 
 pub fn exit(status: Result<usize>) -> ! {
@@ -144,12 +153,9 @@ pub fn spawn(executable: usize, size: usize) -> Result<()> {
     check()
 }
 
-pub unsafe fn get_error() -> Error {
-    let e = unsafe { *(KUCOM_PAGE as *const Error) };
-    unsafe {
-        write_bytes(KUCOM_PAGE as *mut u8, 0, PAGE_SIZE);
-    }
-    e
+pub fn r#yield() {
+    write_syscall(Syscall::Yield);
+    make_syscall!(Syscall::Yield);
 }
 
 #[cfg(feature = "user")]

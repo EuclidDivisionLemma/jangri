@@ -1,5 +1,5 @@
 [workspace]
-members = ["allocator", "arch/riscv", "hal", "janglib", "kernel", "sync", "upc", "userspace"]
+members = ["allocator", "arch/riscv", "hal", "janglib", "kernel", "sync", "userspace"]
 resolver = "3"
 
 [workspace.dependencies]

@@ -7,3 +7,4 @@ edition = "2024"
 riscv.workspace = true
 lock_api.workspace = true
 hal.workspace = true
+janglib.workspace = true
