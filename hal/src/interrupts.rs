@@ -35,6 +35,7 @@ pub trait TrapFrame {
 pub fn make_syscall() {
     #[cfg(target_arch = "riscv64")]
     use core::arch::asm;
+    #[cfg(target_arch = "riscv64")]
     unsafe {
         asm!("ecall");
     }

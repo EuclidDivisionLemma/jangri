@@ -4,8 +4,11 @@ use std::boxed::Box;
 
 use core::{alloc::Layout, ptr::NonNull};
 
+use hal::constants::PAGE_SIZE;
+
 use crate::{
-    PAGE_SIZE, PageAllocator,
+    PageAllocator,
+    bitmap::Bitmap,
     linked_list::{LinkedList, MAGIC_1, MAGIC_2, Node, generate_node_id},
 };
 
@@ -126,14 +129,33 @@ fn test_linked_list() {
 }
 
 #[test]
-#[should_panic(expected = "Allocation Error: Size (20) is not a power of two")]
+fn test_bitmap() {
+    let mut bitmap = Bitmap::new();
+    bitmap.mark_available(18);
+    assert!(bitmap.is_available(18));
+    assert!(bitmap.first_available(17).unwrap() == 18);
+    assert!(
+        bitmap.first_available(19).is_none(),
+        "{:?}",
+        bitmap.first_available(19)
+    );
+    bitmap.mark_available(2100);
+    assert!(bitmap.is_available(2100));
+    assert!(!bitmap.is_available(2199));
+    assert!(bitmap.first_available(2099).unwrap() == 2100);
+    assert!(bitmap.first_available(2100).unwrap() == 2100);
+    bitmap.mark_available(2560);
+    assert!(bitmap.is_available(2560));
+    assert!(bitmap.first_available(2560).unwrap() == 2560);
+    bitmap.mark_available(1);
+    assert!(bitmap.is_available(1));
+}
+
+#[test]
+#[should_panic(expected = "Allocation Error: Size (20) is less than minimum allocable size (4096)")]
 fn test_allocator() {
     let heap = unsafe { alloc(Layout::from_size_align(256 * PAGE_SIZE, PAGE_SIZE).unwrap()) };
-    let mut allocator = PageAllocator::new(
-        &|_| Err(hal::error::Error::MemoryNotAvailable),
-        heap.addr(),
-        heap.addr() + 256 * PAGE_SIZE,
-    );
+    let mut allocator = PageAllocator::new(heap.addr(), heap.addr() + 256 * PAGE_SIZE);
 
     let four_pages = allocator.allocate(4 * PAGE_SIZE).unwrap() as *mut usize;
     let sixteen_pages = allocator.allocate(16 * PAGE_SIZE).unwrap() as *mut usize;
@@ -144,6 +166,7 @@ fn test_allocator() {
     let another_four_pages = allocator.allocate(4 * PAGE_SIZE).unwrap() as *mut usize;
 
     unsafe {
+        assert!(sixteen_pages.addr() % 8 == 0, "{}", sixteen_pages.addr());
         *sixteen_pages = 9855658;
         *four_pages = 12274387;
         *sixty_four_pages = 117868;
@@ -162,7 +185,7 @@ fn test_allocator() {
         assert_eq!(*sixteen_pages, 9855658);
     }
 
-    assert!(allocator.allocate(PAGE_SIZE).is_err());
+    assert!(allocator.allocate(PAGE_SIZE).is_none());
 
     allocator.deallocate(one_hundred_twenty_eight_pages.addr(), 128 * PAGE_SIZE);
 
@@ -172,7 +195,7 @@ fn test_allocator() {
         assert_eq!(*some_more_pages, 983645);
     }
 
-    assert!(allocator.allocate(20).is_err());
+    assert!(allocator.allocate(20).is_none());
     allocator.deallocate(four_pages.addr(), 4 * PAGE_SIZE);
     allocator.deallocate(sixteen_pages.addr(), 16 * PAGE_SIZE);
     allocator.deallocate(sixty_four_pages.addr(), 64 * PAGE_SIZE);

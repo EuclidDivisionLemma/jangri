@@ -1,5 +1,6 @@
 #![no_std]
 
+mod bitmap;
 mod linked_list;
 mod page_allocator;
 
@@ -9,7 +10,5 @@ mod tests;
 use core::sync::atomic::AtomicUsize;
 
 pub use page_allocator::PageAllocator;
-
-pub const PAGE_SIZE: usize = 4096;
 
 pub static ALLOC: AtomicUsize = AtomicUsize::new(0);

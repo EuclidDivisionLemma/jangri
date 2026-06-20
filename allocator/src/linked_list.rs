@@ -12,14 +12,34 @@ pub struct Node {
     pub magic_2: u128,
 }
 
-pub fn check_magic(node: NonNull<Node>) {
-    unsafe {
-        debug_assert_eq!((*node.as_ptr()).magic_1, MAGIC_1, "MEMORY CORRUPT");
-        debug_assert_eq!((*node.as_ptr()).magic_2, MAGIC_2, "MEMORY CORRUPT");
+impl Node {
+    pub const fn new(
+        prev: Option<NonNull<Node>>,
+        next: Option<NonNull<Node>>,
+        size: usize,
+    ) -> Self {
+        if size == 0 {
+            panic!("Node size cannot be zero, must be atleast 4KiB large");
+        }
+        Self {
+            magic_1: MAGIC_1,
+            next,
+            prev,
+            size,
+            id: generate_node_id(),
+            magic_2: MAGIC_2,
+        }
     }
 }
 
-pub fn generate_node_id() -> u128 {
+pub fn check_magic(node: NonNull<Node>) {
+    unsafe {
+        assert_eq!((*node.as_ptr()).magic_1, MAGIC_1, "MEMORY CORRUPT");
+        assert_eq!((*node.as_ptr()).magic_2, MAGIC_2, "MEMORY CORRUPT");
+    }
+}
+
+pub const fn generate_node_id() -> u128 {
     static mut NODE_ID: u128 = 0;
 
     unsafe {
@@ -28,8 +48,18 @@ pub fn generate_node_id() -> u128 {
     }
 }
 
+#[derive(Copy)]
 pub struct LinkedList {
     pub head: Option<NonNull<Node>>,
+}
+
+impl Clone for LinkedList {
+    /// HEADS UP: This only does a shallow copy. That is, only the pointer to head is copied not the data.
+    fn clone(&self) -> Self {
+        Self {
+            head: self.head.clone(),
+        }
+    }
 }
 
 impl LinkedList {

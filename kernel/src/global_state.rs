@@ -3,7 +3,7 @@ use alloc::{collections::btree_map::BTreeMap, sync::Arc};
 use allocator::PageAllocator;
 use hal::Hal;
 use hal::constants::PAGE_SIZE;
-use hal::error::Result;
+use hal::error::{Error, Result};
 use hal::interrupts::InterruptHandling;
 use hal::vm::{PageTable, VirtualMemory};
 
@@ -30,7 +30,6 @@ unsafe impl Sync for GlobalState {}
 impl GlobalState {
     pub fn initialise() -> &'static Self {
         let allocator0 = Arc::new(Mutex::new(PageAllocator::new(
-            &|_| return Err(hal::error::Error::MemoryNotAvailable),
             unsafe { KERNEL_END },
             RAM_STOP,
         )));
@@ -48,7 +47,7 @@ impl GlobalState {
                     let mut allocator = allocator0.lock();
                     assert!(size.is_power_of_two() && size >= PAGE_SIZE);
 
-                    allocator.allocate(size)
+                    allocator.allocate(size).ok_or(Error::MemoryNotAvailable)
                 }),
                 Arc::new(move |addr, size| {
                     let mut allocator = allocator1.lock();
@@ -62,7 +61,9 @@ impl GlobalState {
 
     pub fn allocate(&self, size: usize) -> Result<usize> {
         let mut allocator = self.allocator.lock();
-        allocator.allocate(size)
+        allocator
+            .allocate(size)
+            .ok_or(hal::error::Error::MemoryNotAvailable)
     }
 
     pub fn deallocate(&self, start: usize, size: usize) {

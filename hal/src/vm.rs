@@ -125,7 +125,7 @@ pub(crate) mod constants {
     pub const NUMBER_OF_PAGE_TABLE_ENTRIES_PER_PAGE: usize = 0;
     pub const MAX_VA: usize = 0;
     pub const NUMBER_OF_LEVELS: usize = 0;
-    pub const PAGE_SIZE: usize = 1;
+    pub const PAGE_SIZE: usize = 0x1000;
 }
 
 pub fn align_to_page_size(size: usize) -> usize {
