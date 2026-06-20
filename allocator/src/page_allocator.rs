@@ -98,8 +98,7 @@ impl PageAllocator {
             return Some(block.addr().get());
         }
 
-        if self.current_start < self.memory_end {
-            assert!(self.current_size != 0);
+        if self.current_start < self.memory_end && size < self.current_size {
             let old_start = self.current_start;
             self.current_start += size;
             self.current_size -= size;
