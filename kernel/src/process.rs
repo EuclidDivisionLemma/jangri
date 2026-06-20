@@ -139,9 +139,7 @@ pub fn assign_process(
     for segment in elf_bytes.segments().ok_or(Error::ELFError)? {
         if segment.p_type == PT_LOAD {
             let code_page_start = align_to_page_size(segment.p_vaddr as usize);
-            let memsz = align_to_page_size(segment.p_memsz as usize)
-                .checked_next_power_of_two()
-                .unwrap();
+            let memsz = align_to_page_size(segment.p_memsz as usize);
             let mut pt = state.allocate(memsz)?;
 
             state.map(

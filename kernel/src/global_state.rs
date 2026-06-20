@@ -45,7 +45,7 @@ impl GlobalState {
             arch: Mutex::new(ARCH::new(
                 Arc::new(move |size| {
                     let mut allocator = allocator0.lock();
-                    assert!(size.is_power_of_two() && size >= PAGE_SIZE);
+                    assert!(size >= PAGE_SIZE);
 
                     allocator.allocate(size).ok_or(Error::MemoryNotAvailable)
                 }),
