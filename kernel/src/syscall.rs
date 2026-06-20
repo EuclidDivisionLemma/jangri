@@ -133,21 +133,7 @@ pub fn want_memory(state: &GlobalState, size: usize) -> Result<(usize, usize)> {
     if va + num_pages * PAGE_SIZE >= STACK_GUARD {
         return Err(Error::MemoryNotAvailable);
     }
-
-    let pa = state.allocate(size)?;
-    state.map(
-        process.page_table,
-        va,
-        pa,
-        num_pages * PAGE_SIZE,
-        true,
-        true,
-        false,
-        true,
-    )?;
-
     process.heap_end += num_pages * PAGE_SIZE;
-
     Ok((process.heap_end - num_pages * PAGE_SIZE, size))
 }
 

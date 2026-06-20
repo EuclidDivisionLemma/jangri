@@ -56,6 +56,7 @@ pub struct Process {
     pub global_state: &'static GlobalState,
     pub heap_start: usize,
     pub heap_end: usize,
+    pub currently_unmapped_start: usize,
 }
 
 impl Debug for Process {
@@ -78,6 +79,7 @@ impl Process {
             global_state: context,
             heap_start: 0,
             heap_end: 0,
+            currently_unmapped_start: 0,
         }
     }
 }
@@ -177,6 +179,7 @@ pub fn assign_process(
         }
 
         process.heap_end = process.heap_start;
+        process.currently_unmapped_start = process.heap_end;
     }
 
     hal::interrupts::TrapFrame::set_entry_point(trapframe, elf_bytes.ehdr.e_entry as usize);

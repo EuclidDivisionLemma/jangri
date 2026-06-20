@@ -59,23 +59,60 @@ pub fn user_trap() {
         } else if ARCH::is_external_interrupt() {
             ARCH::handle_external_interrupt();
         } else if ARCH::is_exception() {
-            let cause = Box::new(ARCH::cause());
             let mut current_process = process.lock();
-            let name = current_process.name.clone();
-            let id = current_process.id;
-            println!(
-                "Exception Occured: Terminating process name = {}, pid = {}, cause = {:?}, \
+
+            if ARCH::is_page_fault() {
+                let a = || -> Result<()> {
+                    let faulting_address: usize = ARCH::intmem();
+                    if current_process.currently_unmapped_start != current_process.heap_end
+                        && faulting_address >= current_process.currently_unmapped_start
+                        && faulting_address < current_process.heap_end
+                    {
+                        let block = state
+                            .allocate(current_process.heap_end - current_process.heap_start)?;
+                        state.map(
+                            current_process.page_table,
+                            current_process.heap_start,
+                            block,
+                            current_process.heap_end - current_process.heap_start,
+                            true,
+                            true,
+                            false,
+                            true,
+                        )?;
+                    }
+                    Ok(())
+                };
+
+                if let Err(e) = a() {
+                    println!(
+                        "Error Occured: Terminating process name = {}, pid = {}, error = {:?}",
+                        current_process.name, current_process.id, e
+                    );
+                    current_process.process_state = ProcessState::Terminated {
+                        return_value: Err(Box::new(e)),
+                    };
+                } else {
+                    current_process.currently_unmapped_start = current_process.heap_end;
+                }
+            } else {
+                let cause = Box::new(ARCH::cause());
+                let name = current_process.name.clone();
+                let id = current_process.id;
+                println!(
+                    "Exception Occured: Terminating process name = {}, pid = {}, cause = {:?}, \
                 Faulting instruction address = {:?}, Faulting memory address = {:?}",
-                name,
-                id,
-                &cause,
-                ARCH::intpc(),
-                ARCH::intmem(),
-            );
-            wake_up(state, id);
-            current_process.process_state = crate::process::ProcessState::Terminated {
-                return_value: Err(cause),
-            };
+                    name,
+                    id,
+                    &cause,
+                    ARCH::intpc(),
+                    ARCH::intmem(),
+                );
+                wake_up(state, id);
+                current_process.process_state = crate::process::ProcessState::Terminated {
+                    return_value: Err(cause),
+                };
+            }
         } else if ARCH::is_syscall() {
             syscall::handle(state);
         }

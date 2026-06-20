@@ -1,6 +1,7 @@
 #![no_std]
 
 use hal::interrupts::InterruptHandling;
+use riscv::{ExceptionNumber, interrupt::Trap};
 extern crate alloc;
 
 use core::{

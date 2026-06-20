@@ -10,6 +10,7 @@ use hal::{
     interrupts::InterruptHandling,
 };
 use riscv::{
+    ExceptionNumber,
     interrupt::{
         Trap,
         supervisor::{Exception, Interrupt},
@@ -291,7 +292,7 @@ impl InterruptHandling for Riscv {
         riscv::register::sepc::read()
     }
 
-    fn intmem() -> impl Debug {
+    fn intmem() -> usize {
         riscv::register::stval::read()
     }
 
@@ -299,5 +300,18 @@ impl InterruptHandling for Riscv {
         unsafe {
             (*trapframe).sepc += 4;
         }
+    }
+
+    fn is_page_fault() -> bool {
+        let cause = riscv::register::scause::read();
+        if let Trap::Exception(e) = cause.cause() {
+            let e = riscv::interrupt::Exception::from_number(e).expect("Unknown exception no");
+            if e == riscv::interrupt::Exception::LoadPageFault
+                || e == riscv::interrupt::Exception::StorePageFault
+            {
+                return true;
+            }
+        }
+        false
     }
 }
