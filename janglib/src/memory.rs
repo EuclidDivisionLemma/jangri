@@ -48,6 +48,9 @@ impl<F: Fn(usize, usize) -> Result<usize>> UserMemorySlice<true, F> {
 }
 
 pub fn want_memory(size: usize) -> Result<(usize, usize)> {
+    if size > allocator::MAX_ALLOC {
+        return Err(Error::BeyondAllocationLimit);
+    }
     let size = align_to_page_size(size);
     write_syscall(Syscall::WantMemory(size));
     make_syscall!(Syscall::WantMemory);

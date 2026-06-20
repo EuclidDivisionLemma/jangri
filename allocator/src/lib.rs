@@ -9,6 +9,7 @@ mod tests;
 
 use core::sync::atomic::AtomicUsize;
 
+pub use page_allocator::MAX_ALLOC;
 pub use page_allocator::PageAllocator;
 
 pub static ALLOC: AtomicUsize = AtomicUsize::new(0);

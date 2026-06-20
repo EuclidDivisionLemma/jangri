@@ -12,7 +12,7 @@ use crate::{
     linked_list::{LinkedList, MAGIC_1, MAGIC_2, Node},
 };
 
-const MAX_ALLOC: usize = 10485760; // 10 MiB
+pub const MAX_ALLOC: usize = 10485760; // 10 MiB
 
 pub const NUM_MULTIPLES: usize = 2560;
 

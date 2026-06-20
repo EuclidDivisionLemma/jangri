@@ -14,4 +14,5 @@ pub enum Error {
     NotASyscall,
     ELFError,
     ExplicitPanic,
+    BeyondAllocationLimit,
 }
