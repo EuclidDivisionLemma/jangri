@@ -1,5 +1,8 @@
 A simple xv6-style kernel.
 
+# Note
+The `master` branch has only a shell and supports only two shell commands `about` and `echo`. There are no other userspace programs. The `spawn` branch contains one userspace program other than the shell that just prints a greeting. To check the working of the new spawn syscall, which is available only on the `spawn` branch, switch to the `spawn` branch.
+
 # Planned 
 ## High priority
 * Complete the implementation of `Spawn` syscall.
