@@ -213,11 +213,10 @@ pub fn exit(state: &GlobalState, status: core::result::Result<usize, Box<dyn Deb
     {
         let mut current_process = current_process.lock();
         current_process.children.clear();
+        state
+            .cleanup_page_table(current_process.page_table)
+            .unwrap();
     }
-    // currently clean up fails
-    // state
-    //     .cleanup_page_table(current_process.page_table)
-    //     .unwrap();
 
     switch_to_scheduler_context(state);
     unreachable!("EXIT UNREACHABLE");

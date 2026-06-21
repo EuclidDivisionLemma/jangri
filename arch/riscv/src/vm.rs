@@ -1,6 +1,7 @@
 use core::arch::asm;
 
 use alloc::sync::Arc;
+use hal::constants::{NUMBER_OF_LEVELS, TRAMPOLINE};
 use hal::error::{Error, Result};
 
 mod pte;
@@ -135,15 +136,7 @@ impl VirtualMemory<PageTableEntry> for Riscv {
         &self,
         page_table: *mut hal::vm::PageTable<PageTableEntry>,
     ) -> Result<()> {
-        for i in 0..NUMBER_OF_PAGE_TABLE_ENTRIES_PER_PAGE {
-            let pte = unsafe { (*page_table).get_entry(i) };
-            let page_table =
-                unsafe { (*pte).get_physical_address() as *mut PageTable<PageTableEntry> };
-
-            recursive_clean(self.deallocate.clone(), page_table);
-        }
-
-        (self.deallocate)(page_table as usize, PAGE_SIZE);
+        // recursive_clean(self.deallocate.clone(), page_table);
         Ok(())
     }
 
@@ -171,10 +164,9 @@ fn recursive_clean(
                         (*pte).get_physical_address() as *mut PageTable<PageTableEntry>,
                     );
                 }
-                let pa = (*pte).get_physical_address();
-                deallocate(pa, PAGE_SIZE);
                 (*pte).clear_bits();
             }
         }
+        deallocate(page_table.addr(), PAGE_SIZE);
     }
 }
