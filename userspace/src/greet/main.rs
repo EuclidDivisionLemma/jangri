@@ -9,5 +9,5 @@ use janglib::{print, println};
 
 #[unsafe(no_mangle)]
 fn main() {
-    println!("Hello Maths");
+    println!("Hello Stranger!");
 }

@@ -2,5 +2,5 @@
 .rules
 build
 .vscode
-maths.bin
+greet.bin
 sh.bin

@@ -8,8 +8,8 @@ name = "sh"
 path = "./src/sh/main.rs"
 
 [[bin]]
-name = "maths"
-path = "./src/maths/main.rs"
+name = "greet"
+path = "./src/greet/main.rs"
 
 [dependencies]
 janglib = {workspace = true, features = ["user"]}
