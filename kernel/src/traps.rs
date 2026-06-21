@@ -89,7 +89,7 @@ pub fn user_trap() {
                         "Error Occured: Terminating process name = {}, pid = {}, error = {:?}",
                         current_process.name, current_process.id, e
                     );
-                    syscall::exit(state, Some(Err(e)), None);
+                    syscall::exit(state, Err(Box::new(e)));
                 } else {
                     current_process.currently_unmapped_start = current_process.heap_end;
                 }
@@ -106,7 +106,7 @@ pub fn user_trap() {
                     ARCH::intpc(),
                     ARCH::intmem(),
                 );
-                syscall::exit(state, None, Some(Err(cause)));
+                syscall::exit(state, Err(cause));
             }
         } else if ARCH::is_syscall() {
             syscall::handle(state);

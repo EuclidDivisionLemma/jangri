@@ -81,7 +81,11 @@ pub fn handle(state: &'static GlobalState) {
                 )))
             }
             Syscall::Exit(status) => {
-                exit(state, Some(status), None);
+                let status: core::result::Result<usize, Box<dyn Debug>> = match status {
+                    Ok(v) => Ok(v),
+                    Err(e) => Err(Box::new(e)),
+                };
+                exit(state, status);
                 SyscallInfo::SyscallResult(SyscallResult::Exit)
             }
             Syscall::Spawn(name_start, name_len, start, len, wait) => {
@@ -170,23 +174,7 @@ fn remove_from_vec(v: &mut Vec<Arc<Mutex<Process>>>, id: usize) {
     });
 }
 
-// todo: Change this ugly function
-pub fn exit(
-    state: &GlobalState,
-    status0: Option<Result<usize>>,
-    status1: Option<core::result::Result<usize, Box<dyn Debug>>>,
-) -> ! {
-    let status: core::result::Result<usize, Box<dyn Debug>> = if let Some(s) = status0 {
-        match s {
-            Ok(v) => Ok(v),
-            Err(e) => Err(Box::new(e)),
-        }
-    } else if let Some(s) = status1 {
-        s
-    } else {
-        panic!()
-    };
-
+pub fn exit(state: &GlobalState, status: core::result::Result<usize, Box<dyn Debug>>) -> ! {
     let current_process: Arc<Mutex<Process>> = state.get_current_process().unwrap();
     let (parent, pid) = {
         let mut current_process = current_process.lock();
