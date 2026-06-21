@@ -3,7 +3,6 @@ use crate::{
     constants::{KERNEL_PAGE_TABLE, Sv48, TRAMPOLINE_CODE_ADDRESS, TRAMPOLINE_OFFSET},
     global_state::GlobalState,
     scheduler::{Context, switch_to_scheduler_context},
-    syscall::stdout,
     traps::{self, set_up_supervisor_to_user_mode_transition, user_trap},
     vm::kernel_stack_address,
 };

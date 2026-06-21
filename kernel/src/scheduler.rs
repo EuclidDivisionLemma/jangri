@@ -7,7 +7,6 @@ use crate::{
     ARCH, Mutex,
     global_state::GlobalState,
     process::{Process, ProcessState},
-    syscall::stdout,
 };
 
 #[repr(C)]

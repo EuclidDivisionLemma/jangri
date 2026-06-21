@@ -12,7 +12,6 @@ use crate::{
     global_state::GlobalState,
     process::assign_process,
     scheduler::schedule,
-    syscall::stdout,
     vm::{enable_paging, initialise_kernel_page_table},
 };
 
@@ -54,6 +53,27 @@ unsafe extern "C" {
 
 pub static RAM_FS: &'static [u8] = include_bytes!("../../ramfs.img");
 
+#[macro_export]
+macro_rules! print {
+    ($($x: expr,)*) => {
+        uart::console_write(&format!($($x,)*));
+    };
+    ($x: expr) => {
+        uart::console_write($x);
+    };
+}
+
+#[macro_export]
+macro_rules! println {
+    ($($x: expr),*) => {
+        print!($($x,)*);
+        uart::console_write("\n");
+    };
+    ($x: expr) => {
+        uart::console_write($x);
+    };
+}
+
 fn intialise_constants() {
     unsafe {
         KERNEL_END = align_to_page_size(&kernel_end as *const u8 as usize);
@@ -67,18 +87,22 @@ fn intialise_constants() {
 
 #[unsafe(no_mangle)]
 fn main() -> ! {
+    println!("\x1b[2J\x1b[HJangri v0.0.1\n");
+    println!("[1 of 5] Initialising Constants");
     intialise_constants();
 
+    println!("[2 of 5] Setting up the Kernel");
     let state = GlobalState::initialise();
 
+    println!("[3 of 5] Setting up Virtual Memory");
     initialise_kernel_page_table(&state).unwrap();
-
     enable_paging();
 
+    println!("[4 of 5] Setting up Console");
     traps::initialise();
     uart::initialise();
 
-    stdout("\x1b[2J\x1b[HJangri v0.0.1\n");
+    println!("[5 of 5] Starting shell\n");
     assign_process(state, "init", RAM_FS.to_vec()).unwrap();
 
     schedule(state);

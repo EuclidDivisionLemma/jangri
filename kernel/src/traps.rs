@@ -4,6 +4,7 @@ use hal::{constants::TRAMPOLINE, interrupts::InterruptHandling};
 use alloc::{boxed::Box, format, sync::Arc};
 use hal::error::Result;
 
+use janglib::{print, println};
 use riscv_arch::uart;
 use spin::Once;
 
@@ -12,7 +13,7 @@ use crate::{
     constants::{TIME_SLICE, TRAMPOLINE_OFFSET},
     global_state::GlobalState,
     process::{Process, wake_up, yield_cpu},
-    syscall::{self, stdout},
+    syscall::{self},
 };
 
 static GLOBAL_STATE: Once<GlobalState> = Once::new();
@@ -62,15 +63,15 @@ pub fn user_trap() {
             let mut current_process = process.lock();
             let name = current_process.name.clone();
             let id = current_process.id;
-            uart::console_write(&format!(
+            println!(
                 "Exception Occured: Terminating process name = {}, pid = {}, cause = {:?}, \
-                Faulting instruction address = {:?}, Faulting memory address = {:?}\n",
+                Faulting instruction address = {:?}, Faulting memory address = {:?}",
                 name,
                 id,
                 &cause,
                 ARCH::intpc(),
                 ARCH::intmem(),
-            ));
+            );
             wake_up(state, id);
             current_process.process_state = crate::process::ProcessState::Terminated {
                 return_value: Err(cause),

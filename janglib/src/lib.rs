@@ -231,11 +231,17 @@ macro_rules! print {
 
 #[macro_export]
 macro_rules! println {
-    ($($x: expr),*) => {
+    ($($x: expr,)*) => {
         print!($($x,)*);
         janglib::io::write("\n");
     };
     ($x: expr) => {
         janglib::io::write($x);
+        janglib::io::write("\n");
     };
+    ($($x: expr),*) =>
+    {
+        print!($($x,)*);
+        janglib::io::write("\n");
+    }
 }

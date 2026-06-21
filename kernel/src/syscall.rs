@@ -13,6 +13,7 @@ use riscv_arch::uart::{self, INPUT_BUFFER};
 use crate::{
     ARCH, Mutex, TrapFrame,
     global_state::GlobalState,
+    print,
     process::{
         self, Process, ProcessState, assign_process, prepare_first_time_execution, yield_cpu,
     },
@@ -20,19 +21,6 @@ use crate::{
 };
 
 use hal::vm::align_to_page_size;
-
-pub fn stdout<'a>(text: &'a str) {
-    let chars = text.as_bytes();
-    unsafe {
-        for char in chars {
-            asm!("li a7, 0x4442434E",
-            "li a6, 2",
-            "mv a0, {}",
-            "ecall",
-            in(reg) *char as i64);
-        }
-    }
-}
 
 pub fn handle(state: &'static GlobalState) {
     let locked_process: Arc<Mutex<Process>> = state
@@ -78,7 +66,7 @@ pub fn handle(state: &'static GlobalState) {
                     len,
                     |va, page_table| state.va2pa(page_table, va),
                 );
-                uart::console_write(str::from_utf8(slice.read()).unwrap());
+                print!(str::from_utf8(slice.read()).unwrap());
                 SyscallInfo::SyscallResult(SyscallResult::Write(Ok(len)))
             }
             Syscall::ReadChar => {
