@@ -15,4 +15,5 @@ pub enum Error {
     ELFError,
     ExplicitPanic,
     BeyondAllocationLimit,
+    ArchitectureError,
 }

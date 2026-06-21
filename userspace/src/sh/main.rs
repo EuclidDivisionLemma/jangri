@@ -1,14 +1,14 @@
 #![no_std]
 #![no_main]
 
-use core::arch::asm;
-
 use alloc::{format, string::String, vec::Vec};
 use janglib::{self, print, println};
 
 extern crate alloc;
 
 pub const ABOUT: &'static str = r#"Jangri is a simple kernel inspired by xv6 and created by Aadarsh. It has no persistent filesystem, no support for SMP, no support for device detection. Although it's nearly useless, it showcases the author's low-level skills."#;
+
+pub const MATHS: &'static [u8] = include_bytes!("../../../maths.bin");
 
 fn process(input: String) {
     let parts = input.split(" ").collect::<Vec<&str>>();
@@ -21,6 +21,8 @@ fn process(input: String) {
         }
     } else if *parts.get(0).unwrap() == "about" {
         println!("{}", ABOUT);
+    } else if *parts.get(0).unwrap() == "maths" {
+        let pid = janglib::spawn("maths", MATHS, true).unwrap();
     } else {
         println!("Unrecognised command");
     }

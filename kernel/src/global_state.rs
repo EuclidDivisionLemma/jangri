@@ -79,6 +79,11 @@ impl GlobalState {
         pids.push_back(id);
     }
 
+    pub fn remove_process(&self, pid: usize) {
+        let mut processes = self.processes.write();
+        let _ = processes.remove(&pid).unwrap();
+    }
+
     pub fn get_current_process(&self) -> Option<Arc<Mutex<Process>>> {
         self.current_process
             .lock()
@@ -110,23 +115,6 @@ impl GlobalState {
                     }
                 }
                 None => continue,
-            }
-        }
-
-        None
-    }
-
-    pub fn find_sleeping_process(&self, sleep_on: usize) -> Option<usize> {
-        let processes = self.processes.read();
-
-        for (pid, process) in processes.iter() {
-            // a process whose lock cannot be acquired is the current process
-            if let Some(process) = process.try_lock() {
-                if let ProcessState::Sleeping { sleep_on: s } = &process.process_state
-                    && *s == sleep_on
-                {
-                    return Some(*pid);
-                }
             }
         }
 

@@ -7,6 +7,10 @@ edition = "2024"
 name = "sh"
 path = "./src/sh/main.rs"
 
+[[bin]]
+name = "maths"
+path = "./src/maths/main.rs"
+
 [dependencies]
 janglib = {workspace = true, features = ["user"]}
 

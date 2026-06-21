@@ -11,6 +11,7 @@ use core::{
     ptr::{write_bytes, write_volatile},
 };
 
+use alloc::string::{String, ToString};
 use hal::{
     constants::{KUCOM_PAGE, PAGE_SIZE, TRAPFRAME},
     error::{Error, Result},
@@ -30,13 +31,14 @@ pub mod memory;
 #[cfg(not(feature = "user"))]
 pub mod ramfs;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub enum Syscall {
     WantMemory(usize),
     Write(usize, usize),
     ReadChar,
     Exit(Result<usize>),
-    Spawn(usize, usize),
+    /// name start addr, name length, executable start, executable length, wait
+    Spawn(usize, usize, usize, usize, bool),
     Yield,
 }
 
@@ -46,11 +48,12 @@ pub enum SyscallResult {
     Write(Result<usize>),
     ReadChar(Result<Option<char>>),
     Exit,
-    Spawn(Result<()>),
+    Spawn(Result<usize>),
     Yield,
+    Wait(Option<Result<usize>>),
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub enum SyscallInfo {
     Syscall(Syscall),
     SyscallResult(SyscallResult),
@@ -65,7 +68,7 @@ pub(crate) fn write_syscall(syscall: Syscall) {
 
 pub(crate) fn get_result() -> SyscallResult {
     let result = {
-        let result = unsafe { *(KUCOM_PAGE as *const SyscallInfo) };
+        let result = unsafe { (*(KUCOM_PAGE as *const SyscallInfo)).clone() };
         if let SyscallInfo::SyscallResult(r) = result {
             r
         } else {
@@ -132,7 +135,7 @@ macro_rules! make_syscall {
     (Syscall::Spawn) => {
         hal::interrupts::make_syscall();
 
-        pub fn check() -> Result<()> {
+        pub fn check() -> Result<usize> {
             let result = get_result();
             match result {
                 SyscallResult::Spawn(v) => v,
@@ -144,6 +147,18 @@ macro_rules! make_syscall {
     (Syscall::Yield) => {
         hal::interrupts::make_syscall();
     };
+
+    (Syscall::Wait) => {
+        hal::interrupts::make_syscall();
+
+        pub fn check() -> Option<Result<usize>> {
+            let result = get_result();
+            match result {
+                SyscallResult::Wait(v) => v,
+                _ => panic!(),
+            }
+        }
+    };
 }
 
 pub fn exit(status: Result<usize>) -> ! {
@@ -153,8 +168,14 @@ pub fn exit(status: Result<usize>) -> ! {
     unreachable!()
 }
 
-pub fn spawn(executable: usize, size: usize) -> Result<()> {
-    write_syscall(Syscall::Spawn(executable, size));
+pub fn spawn(name: &str, executable: &[u8], wait: bool) -> Result<usize> {
+    write_syscall(Syscall::Spawn(
+        name.as_ptr().addr(),
+        name.len(),
+        executable.as_ptr().addr(),
+        executable.len(),
+        wait,
+    ));
     make_syscall!(Syscall::Spawn);
     check()
 }

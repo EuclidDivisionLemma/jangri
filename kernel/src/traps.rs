@@ -1,4 +1,4 @@
-use core::mem::transmute;
+use core::{fmt::Debug, mem::transmute};
 use hal::{constants::TRAMPOLINE, interrupts::InterruptHandling};
 
 use alloc::{boxed::Box, format, sync::Arc};
@@ -12,7 +12,7 @@ use crate::{
     ARCH, Mutex, TrapFrame,
     constants::{TIME_SLICE, TRAMPOLINE_OFFSET},
     global_state::GlobalState,
-    process::{Process, wake_up, yield_cpu},
+    process::{Process, ProcessState, yield_cpu},
     syscall::{self},
 };
 
@@ -89,9 +89,7 @@ pub fn user_trap() {
                         "Error Occured: Terminating process name = {}, pid = {}, error = {:?}",
                         current_process.name, current_process.id, e
                     );
-                    current_process.process_state = ProcessState::Terminated {
-                        return_value: Err(Box::new(e)),
-                    };
+                    syscall::exit(state, Some(Err(e)), None);
                 } else {
                     current_process.currently_unmapped_start = current_process.heap_end;
                 }
@@ -108,10 +106,7 @@ pub fn user_trap() {
                     ARCH::intpc(),
                     ARCH::intmem(),
                 );
-                wake_up(state, id);
-                current_process.process_state = crate::process::ProcessState::Terminated {
-                    return_value: Err(cause),
-                };
+                syscall::exit(state, None, Some(Err(cause)));
             }
         } else if ARCH::is_syscall() {
             syscall::handle(state);

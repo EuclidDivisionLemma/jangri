@@ -6,7 +6,12 @@ use crate::{
     traps::{self, set_up_supervisor_to_user_mode_transition, user_trap},
     vm::kernel_stack_address,
 };
-use alloc::{boxed::Box, format, sync::Arc, vec::Vec};
+use alloc::{
+    boxed::Box,
+    format,
+    sync::{Arc, Weak},
+    vec::Vec,
+};
 use core::{
     fmt::Debug,
     mem::{self, transmute},
@@ -29,6 +34,7 @@ use hal::{
 };
 use lock_api::MutexGuard;
 
+#[derive(Debug)]
 pub enum ProcessState {
     Ready,
     Running,
@@ -37,8 +43,8 @@ pub enum ProcessState {
         return_value: core::result::Result<usize, Box<dyn Debug>>,
     },
     NotUsed,
-    Sleeping {
-        sleep_on: usize,
+    Waiting {
+        waiting_for: usize,
     },
 }
 
@@ -57,6 +63,8 @@ pub struct Process {
     pub heap_start: usize,
     pub heap_end: usize,
     pub currently_unmapped_start: usize,
+    pub parent: Option<Weak<Mutex<Process>>>,
+    pub children: Vec<Arc<Mutex<Process>>>,
 }
 
 impl Debug for Process {
@@ -80,6 +88,8 @@ impl Process {
             heap_start: 0,
             heap_end: 0,
             currently_unmapped_start: 0,
+            parent: None,
+            children: Vec::new(),
         }
     }
 }
@@ -111,7 +121,7 @@ pub fn assign_process(
     let mut pid = PID.lock();
     *pid += 1;
 
-    let locked_process = Arc::new(Mutex::new(Process::default(*pid - 1, state)));
+    let locked_process = Arc::new(Mutex::new(Process::default(*pid, state)));
     state.add_process(*pid, locked_process.clone());
 
     let mut process = locked_process.lock();
@@ -300,22 +310,11 @@ pub fn prepare_first_time_execution() {
 }
 
 impl Process {
-    pub fn sleep(&mut self, sleep_on: usize) {
-        match &self.process_state {
-            ProcessState::Running | ProcessState::Ready => {
-                self.process_state = ProcessState::Sleeping { sleep_on }
-            }
-            _ => (),
-        }
+    pub fn wait(&mut self, wait_for: usize) {
+        self.process_state = ProcessState::Waiting {
+            waiting_for: wait_for,
+        };
 
         switch_to_scheduler_context(self.global_state);
-    }
-}
-
-pub fn wake_up(state: &GlobalState, sleep_on_arg: usize) {
-    if let Some(pid) = state.find_sleeping_process(sleep_on_arg) {
-        let process = state.get_process(pid).unwrap();
-        let mut process = process.lock();
-        process.process_state = ProcessState::Ready;
     }
 }
