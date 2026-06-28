@@ -1,17 +1,6 @@
 A simple xv6-style kernel.
 
-# Note
-The `master` branch has only a shell and supports only two shell commands `about` and `echo`. There are no other userspace programs. The `spawn` branch contains one userspace program other than the shell that just prints a greeting. To check the working of the new spawn syscall, which is available only on the `spawn` branch, switch to the `spawn` branch.
-
-# Planned 
-## High priority
-* Complete the implementation of `Spawn` syscall.
-* Add more userspace programs and a **proper** RamFS
-
-## Low priority
-
-* Support for SMP
-* Simple but persistent disk-backed (QEMU drive image) file system
+There are two userspace programs `sh` and `greet`. The `sh` program simply runs an infinite loop waiting for a prompt. The valid prompts currently are `about`, `echo` and the name of the command `greet`. The first two are shell commands (i.e no process is spawned), while `greet` is a seperate executable program which does nothing but print a greeting message.
 
 # Repo Organisation
 
