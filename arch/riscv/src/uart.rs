@@ -119,7 +119,7 @@ pub fn handle_interrupt() {
                             write_char(' ' as u8);
                             write_char(0x08);
 
-                            input_buffer.enqueue(v);
+                            input_buffer.enqueue(0x08);
 
                             unsafe {
                                 CURSOR_POSITION -= 1;

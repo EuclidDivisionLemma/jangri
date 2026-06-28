@@ -24,6 +24,8 @@ pub fn read() -> String {
         if let Some(ch) = read_char() {
             if ch == '\n' {
                 break;
+            } else if ch == 0x08 as char {
+                let _ = s.pop().unwrap();
             } else {
                 s.push(ch);
             }
