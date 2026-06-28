@@ -121,21 +121,6 @@ impl PageAllocator {
         assert!(size % PAGE_SIZE == 0);
         assert!(size >= PAGE_SIZE && size <= MAX_ALLOC);
 
-        let next = (start + size) as *const Node;
-        unsafe {
-            if read(next).magic_1 == MAGIC_1 && read(next).magic_2 == MAGIC_2 {
-                size += read(next).size;
-                let list = self
-                    .list
-                    .get_mut((read(next).size / PAGE_SIZE) - 1)
-                    .unwrap();
-                list.remove(read(next).id);
-                if list.head.is_none() {
-                    self.bitmaps.mark_unavailable(read(next).size / PAGE_SIZE);
-                }
-            }
-        }
-
         let node = Node::new(None, None, size);
         let node_addr = start as *mut Node;
         unsafe {
