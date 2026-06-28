@@ -89,45 +89,16 @@ pub fn handle(state: &'static GlobalState) {
                 SyscallInfo::SyscallResult(SyscallResult::Exit)
             }
             Syscall::Spawn(name_start, name_len, start, len, wait) => {
-                let s = || -> Result<usize> {
-                    let name = UserMemorySlice::<false, _>::new(
-                        name_start,
-                        page_table,
-                        name_len,
-                        |start, page_table| state.va2pa(page_table, start),
-                    );
-                    let name = str::from_utf8(name.read()).expect("Invalid UTF 8");
-                    let image = UserMemorySlice::<false, _>::new(
-                        start,
-                        page_table,
-                        len,
-                        |start, page_table| state.va2pa(page_table, start),
-                    )
-                    .read_to_vec();
-                    let child: Arc<Mutex<Process>> = assign_process(state, name, image)?;
-                    {
-                        let parent = Some(Arc::downgrade(&locked_process));
-                        let mut process = child.lock();
-                        process.parent = parent;
-                    }
-                    let mut current_process = locked_process.lock();
-                    current_process.children.push(child.clone());
-
-                    let child_pid = {
-                        let c = child.lock();
-                        c.id
-                    };
-
-                    if wait {
-                        current_process.process_state = ProcessState::Waiting {
-                            waiting_for: child_pid,
-                        };
-                    }
-
-                    Ok(child_pid)
-                };
-
-                SyscallInfo::SyscallResult(SyscallResult::Spawn(s()))
+                SyscallInfo::SyscallResult(SyscallResult::Spawn(spawn(
+                    state,
+                    locked_process.clone(),
+                    name_start,
+                    name_len,
+                    start,
+                    len,
+                    wait,
+                    page_table,
+                )))
             }
             Syscall::Yield => {
                 yield_cpu(state);
@@ -146,6 +117,48 @@ pub fn handle(state: &'static GlobalState) {
     let result_buf: [u8; size_of::<SyscallInfo>()] =
         unsafe { mem::transmute::<_, [u8; size_of::<SyscallInfo>()]>(result) };
     result_page.write(result_buf.as_slice());
+}
+
+pub fn spawn(
+    state: &'static GlobalState,
+    current_process: Arc<Mutex<Process>>,
+    name_start: usize,
+    name_len: usize,
+    start: usize,
+    len: usize,
+    wait: bool,
+    page_table: usize,
+) -> Result<usize> {
+    let name =
+        UserMemorySlice::<false, _>::new(name_start, page_table, name_len, |start, page_table| {
+            state.va2pa(page_table, start)
+        });
+    let name = str::from_utf8(name.read()).expect("Invalid UTF 8");
+    let image = UserMemorySlice::<false, _>::new(start, page_table, len, |start, page_table| {
+        state.va2pa(page_table, start)
+    })
+    .read_to_vec();
+    let child: Arc<Mutex<Process>> = assign_process(state, name, image)?;
+    {
+        let parent = Some(Arc::downgrade(&current_process));
+        let mut process = child.lock();
+        process.parent = parent;
+    }
+    let mut current_process = current_process.lock();
+    current_process.children.push(child.clone());
+
+    let child_pid = {
+        let c = child.lock();
+        c.id
+    };
+
+    if wait {
+        current_process.process_state = ProcessState::Waiting {
+            waiting_for: child_pid,
+        };
+    }
+
+    Ok(child_pid)
 }
 
 pub fn want_memory(state: &GlobalState, size: usize) -> Result<(usize, usize)> {
