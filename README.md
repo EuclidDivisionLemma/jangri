@@ -26,9 +26,6 @@ A simple xv6-style kernel.
 
 `janglib` - This crate is included by both the kernel and userspace programs. For the userspace programs, this crate provides the necessary syscall wrappers and library calls to do common tasks like printing to stdout, reading from stdin, allocating memory etc.
 
-# Known Issues
-Page tables are not properly cleaned up when a process exits. The cause if being investigated. Currently `exit` syscall does not do any cleanup.
-
 # Running
 
 * Install `qemu` and the Rust Risc-V toolchain.
