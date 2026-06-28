@@ -1,6 +1,6 @@
-use core::{arch::asm, ffi::c_int, mem, ptr::write_volatile, slice};
+use core::{arch::asm, ffi::c_int, fmt::Debug, mem, ptr::write_volatile, slice};
 
-use alloc::{boxed::Box, sync::Arc};
+use alloc::{boxed::Box, format, string::ToString, sync::Arc, vec::Vec};
 use hal::{
     constants::{KUCOM_PAGE, PAGE_SIZE, STACK_GUARD},
     error::{Error, Result},
@@ -81,11 +81,22 @@ pub fn handle(state: &'static GlobalState) {
                 )))
             }
             Syscall::Exit(status) => {
+                let status: core::result::Result<usize, Box<dyn Debug>> = match status {
+                    Ok(v) => Ok(v),
+                    Err(e) => Err(Box::new(e)),
+                };
                 exit(state, status);
                 SyscallInfo::SyscallResult(SyscallResult::Exit)
             }
-            Syscall::Spawn(start, len) => {
-                let s = || -> Result<()> {
+            Syscall::Spawn(name_start, name_len, start, len, wait) => {
+                let s = || -> Result<usize> {
+                    let name = UserMemorySlice::<false, _>::new(
+                        name_start,
+                        page_table,
+                        name_len,
+                        |start, page_table| state.va2pa(page_table, start),
+                    );
+                    let name = str::from_utf8(name.read()).expect("Invalid UTF 8");
                     let image = UserMemorySlice::<false, _>::new(
                         start,
                         page_table,
@@ -93,11 +104,27 @@ pub fn handle(state: &'static GlobalState) {
                         |start, page_table| state.va2pa(page_table, start),
                     )
                     .read_to_vec();
-                    let process = assign_process(state, "", image)?;
-                    let process = process.lock();
-                    todo!();
+                    let child: Arc<Mutex<Process>> = assign_process(state, name, image)?;
+                    {
+                        let parent = Some(Arc::downgrade(&locked_process));
+                        let mut process = child.lock();
+                        process.parent = parent;
+                    }
+                    let mut current_process = locked_process.lock();
+                    current_process.children.push(child.clone());
 
-                    Ok(())
+                    let child_pid = {
+                        let c = child.lock();
+                        c.id
+                    };
+
+                    if wait {
+                        current_process.process_state = ProcessState::Waiting {
+                            waiting_for: child_pid,
+                        };
+                    }
+
+                    Ok(child_pid)
                 };
 
                 SyscallInfo::SyscallResult(SyscallResult::Spawn(s()))
@@ -133,39 +160,64 @@ pub fn want_memory(state: &GlobalState, size: usize) -> Result<(usize, usize)> {
     if va + num_pages * PAGE_SIZE >= STACK_GUARD {
         return Err(Error::MemoryNotAvailable);
     }
-
-    let pa = state.allocate(size)?;
-    state.map(
-        process.page_table,
-        va,
-        pa,
-        num_pages * PAGE_SIZE,
-        true,
-        true,
-        false,
-        true,
-    )?;
-
     process.heap_end += num_pages * PAGE_SIZE;
-
     Ok((process.heap_end - num_pages * PAGE_SIZE, size))
 }
 
-fn exit(state: &GlobalState, status: Result<usize>) -> ! {
-    {
-        let current_process = state.get_current_process().unwrap();
+fn remove_from_vec(v: &mut Vec<Arc<Mutex<Process>>>, id: usize) {
+    let v = v.iter_mut().filter_map(|e: &mut Arc<Mutex<Process>>| {
+        let pid = {
+            let p = e.lock();
+            p.id
+        };
+        if pid == id { None } else { Some(e) }
+    });
+}
+
+pub fn exit(state: &GlobalState, status: core::result::Result<usize, Box<dyn Debug>>) -> ! {
+    let current_process: Arc<Mutex<Process>> = state.get_current_process().unwrap();
+    let (parent, pid) = {
         let mut current_process = current_process.lock();
         current_process.process_state = ProcessState::Terminated {
-            return_value: match status {
-                Ok(v) => Ok(v),
-                Err(e) => Err(Box::new(e)),
-            },
+            return_value: status,
         };
-        // currently clean up fails
-        // state
-        //     .cleanup_page_table(current_process.page_table)
-        //     .unwrap();
+        (current_process.parent.clone(), current_process.id)
+    };
+
+    if let Some(parent) = parent
+        && let Some(parent) = &parent.upgrade()
+    {
+        let mut parent = parent.lock();
+        {
+            let current_process = current_process.lock();
+            remove_from_vec(&mut parent.children, current_process.id);
+            parent.children.extend(current_process.children.clone());
+        }
+        if let ProcessState::Waiting {
+            waiting_for: wait_for,
+        } = &parent.process_state
+            && *wait_for == pid
+        {
+            parent.process_state = ProcessState::Ready;
+        }
+    } else {
+        let mut current_process = current_process.lock();
+        let _ = current_process
+            .children
+            .iter_mut()
+            .map(|e: &mut Arc<Mutex<Process>>| {
+                let mut p = e.lock();
+                p.parent = None
+            });
     }
+    {
+        let mut current_process = current_process.lock();
+        current_process.children.clear();
+        state
+            .cleanup_page_table(current_process.page_table)
+            .unwrap();
+    }
+
     switch_to_scheduler_context(state);
     unreachable!("EXIT UNREACHABLE");
 }

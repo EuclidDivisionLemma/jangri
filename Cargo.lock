@@ -52,7 +52,7 @@ checksum = "5baebc0774151f905a1a2cc41989300b1e6fbb29aff0ceffa1064fdd3088d582"
 
 [[package]]
 name = "hal"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "ringbuffer",
 ]
@@ -69,7 +69,7 @@ dependencies = [
 
 [[package]]
 name = "jangri"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "allocator",
  "cc",
@@ -155,7 +155,7 @@ checksum = "8188909339ccc0c68cfb5a04648313f09621e8b87dc03095454f1a11f6c5d436"
 
 [[package]]
 name = "riscv_arch"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "hal",
  "ringbuffer",

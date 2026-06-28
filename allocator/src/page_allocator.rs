@@ -1,6 +1,6 @@
 use core::{
     fmt::Debug,
-    ptr::{NonNull, read, write_volatile},
+    ptr::{NonNull, read, write_bytes, write_volatile},
 };
 
 extern crate alloc;
@@ -78,6 +78,9 @@ impl PageAllocator {
             }
 
             if v == multiple {
+                unsafe {
+                    write_bytes(block.addr().get() as *mut u8, 0, v * PAGE_SIZE);
+                }
                 return Some(block.addr().get());
             }
 
@@ -95,6 +98,9 @@ impl PageAllocator {
                 .unwrap()
                 .push_front(NonNull::new(not_needed_addr).unwrap());
             self.bitmaps.mark_available(not_needed_multiple);
+            unsafe {
+                write_bytes(block.addr().get() as *mut u8, 0, needed);
+            }
             return Some(block.addr().get());
         }
 
@@ -102,6 +108,9 @@ impl PageAllocator {
             let old_start = self.current_start;
             self.current_start += size;
             self.current_size -= size;
+            unsafe {
+                write_bytes(old_start as *mut u8, 0, size);
+            }
             return Some(old_start);
         }
 
@@ -111,21 +120,6 @@ impl PageAllocator {
     pub fn deallocate(&mut self, start: usize, mut size: usize) {
         assert!(size % PAGE_SIZE == 0);
         assert!(size >= PAGE_SIZE && size <= MAX_ALLOC);
-
-        let next = (start + size) as *const Node;
-        unsafe {
-            if read(next).magic_1 == MAGIC_1 && read(next).magic_2 == MAGIC_2 {
-                size += read(next).size;
-                let list = self
-                    .list
-                    .get_mut((read(next).size / PAGE_SIZE) - 1)
-                    .unwrap();
-                list.remove(read(next).id);
-                if list.head.is_none() {
-                    self.bitmaps.mark_unavailable(read(next).size / PAGE_SIZE);
-                }
-            }
-        }
 
         let node = Node::new(None, None, size);
         let node_addr = start as *mut Node;

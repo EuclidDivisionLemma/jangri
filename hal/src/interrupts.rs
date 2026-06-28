@@ -19,11 +19,12 @@ pub trait InterruptHandling {
     fn handle_external_interrupt();
     fn cause() -> impl Debug;
     fn intpc() -> impl Debug;
-    fn intmem() -> impl Debug;
+    fn intmem() -> usize;
     fn set_user_mode_trap_handler();
     fn set_supervisor_mode_trap_handler();
     fn set_up_supervisor_to_user_mode_transition(trapframe: *const Self::TRAPFRAME);
     fn handle_syscall(trapframe: *mut Self::TRAPFRAME);
+    fn is_page_fault() -> bool;
 }
 
 pub trait TrapFrame {

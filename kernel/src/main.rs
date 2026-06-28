@@ -51,7 +51,7 @@ unsafe extern "C" {
     fn return_to_user_mode();
 }
 
-pub static RAM_FS: &'static [u8] = include_bytes!("../../ramfs.img");
+pub static SH: &'static [u8] = include_bytes!("../../sh.bin");
 
 #[macro_export]
 macro_rules! print {
@@ -103,7 +103,7 @@ fn main() -> ! {
     uart::initialise();
 
     println!("[5 of 5] Starting shell\n");
-    assign_process(state, "init", RAM_FS.to_vec()).unwrap();
+    assign_process(state, "sh", SH.to_vec()).unwrap();
 
     schedule(state);
 }

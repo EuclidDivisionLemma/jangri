@@ -2,3 +2,5 @@
 .rules
 build
 .vscode
+greet.bin
+sh.bin
