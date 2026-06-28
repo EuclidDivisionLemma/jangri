@@ -24,7 +24,7 @@ fn process(input: String) {
     } else if *parts.get(0).unwrap() == "greet" {
         janglib::spawn("greet", MATHS, true).unwrap();
     } else {
-        println!("Unrecognised command");
+        println!("Unrecognised command: {}", *parts.get(0).unwrap());
     }
 }
 
