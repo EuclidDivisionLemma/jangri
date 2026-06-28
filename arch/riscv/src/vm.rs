@@ -136,7 +136,7 @@ impl VirtualMemory<PageTableEntry> for Riscv {
         &self,
         page_table: *mut hal::vm::PageTable<PageTableEntry>,
     ) -> Result<()> {
-        // recursive_clean(self.deallocate.clone(), page_table);
+        recursive_clean(self.deallocate.clone(), page_table);
         Ok(())
     }
 
