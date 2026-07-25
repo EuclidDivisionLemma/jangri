@@ -1,4 +1,4 @@
-use core::ptr::NonNull;
+use core::{ptr::NonNull, sync::atomic::AtomicU64};
 
 pub const MAGIC_1: u128 = 211482366920938462397425787431768211125;
 pub const MAGIC_2: u128 = 192137983263256483582376453435164352209;
@@ -8,16 +8,12 @@ pub struct Node {
     pub next: Option<NonNull<Node>>,
     pub prev: Option<NonNull<Node>>,
     pub size: usize,
-    pub id: u128,
+    pub id: u64,
     pub magic_2: u128,
 }
 
 impl Node {
-    pub const fn new(
-        prev: Option<NonNull<Node>>,
-        next: Option<NonNull<Node>>,
-        size: usize,
-    ) -> Self {
+    pub fn new(prev: Option<NonNull<Node>>, next: Option<NonNull<Node>>, size: usize) -> Self {
         if size == 0 {
             panic!("Node size cannot be zero, must be atleast 4KiB large");
         }
@@ -39,13 +35,10 @@ pub fn check_magic(node: NonNull<Node>) {
     }
 }
 
-pub const fn generate_node_id() -> u128 {
-    static mut NODE_ID: u128 = 0;
+pub fn generate_node_id() -> u64 {
+    static NODE_ID: AtomicU64 = AtomicU64::new(0);
 
-    unsafe {
-        NODE_ID += 1;
-        NODE_ID - 1
-    }
+    NODE_ID.fetch_add(1, core::sync::atomic::Ordering::AcqRel)
 }
 
 #[derive(Copy)]
@@ -107,7 +100,7 @@ impl LinkedList {
         None
     }
 
-    pub fn remove(&mut self, node_id: u128) -> NonNull<Node> {
+    pub fn remove(&mut self, node_id: u64) -> NonNull<Node> {
         let mut curr = self.head;
 
         while let Some(node) = curr {
