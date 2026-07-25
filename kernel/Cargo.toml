@@ -13,6 +13,7 @@ hal.workspace = true
 lock_api.workspace = true
 spin.workspace = true
 janglib.workspace = true
+fdt = "0.1.5"
 
 
 [dependencies.elf]

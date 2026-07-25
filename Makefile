@@ -1,5 +1,5 @@
 # BUILD_TYPE should be debug or release
-BUILD_TYPE=release
+BUILD_TYPE=debug
 
 make: build
 	cd kernel && cargo run

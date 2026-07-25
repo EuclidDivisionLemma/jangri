@@ -2,6 +2,8 @@
 #![no_main]
 #![allow(static_mut_refs)]
 
+use core::arch::asm;
+
 use alloc::format;
 use hal::{interrupts::InterruptHandling, vm::align_to_page_size};
 
@@ -9,6 +11,7 @@ use crate::{
     constants::{
         END_OF_KERNEL_TEXT, KERNEL_END, KERNEL_START, TRAMPOLINE_CODE_ADDRESS, TRAMPOLINE_OFFSET,
     },
+    device_tree::NUM_CPUS,
     global_state::GlobalState,
     process::assign_process,
     scheduler::schedule,
@@ -17,6 +20,7 @@ use crate::{
 
 mod allocator;
 mod constants;
+mod device_tree;
 mod global_state;
 mod panic;
 mod process;
@@ -87,7 +91,13 @@ fn intialise_constants() {
 
 #[unsafe(no_mangle)]
 fn main() -> ! {
+    device_tree::initialise();
+
     println!("\x1b[2J\x1b[HJangri v0.0.1\n");
+
+    device_tree::find_cpus();
+    println!("Number of CPUs: {}\n", NUM_CPUS.get().unwrap());
+
     println!("[1 of 5] Initialising Constants");
     intialise_constants();
 
@@ -106,4 +116,9 @@ fn main() -> ! {
     assign_process(state, "sh", SH.to_vec()).unwrap();
 
     schedule(state);
+}
+
+#[unsafe(no_mangle)]
+fn main_secondary() {
+    loop {}
 }

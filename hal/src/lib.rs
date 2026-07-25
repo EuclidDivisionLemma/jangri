@@ -31,6 +31,7 @@ pub trait Hal<T: PageTableEntry>: VirtualMemory<T> + InterruptHandling {
     fn get_hart_id() -> usize;
     fn nesting_level() -> usize;
     fn get_trampoline_offset() -> usize;
+    fn shutdown() -> !;
 }
 
 #[inline(always)]

@@ -5,7 +5,7 @@ use riscv::{ExceptionNumber, interrupt::Trap};
 extern crate alloc;
 
 use core::{
-    arch::global_asm,
+    arch::{asm, global_asm},
     sync::atomic::{AtomicBool, AtomicUsize},
 };
 
@@ -39,6 +39,8 @@ global_asm!(
         la sp, stack_top
         j main
 
+    loop:
+        j loop
     "#
 );
 
@@ -85,5 +87,12 @@ impl Hal<vm::PageTableEntry> for Riscv {
 
     fn get_trampoline_offset() -> usize {
         todo!()
+    }
+
+    fn shutdown() -> ! {
+        unsafe {
+            asm!("li a7, 0x53525354", "li a6, 0", "li a1, 0", "ecall");
+        }
+        unreachable!();
     }
 }
