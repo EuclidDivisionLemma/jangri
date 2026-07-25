@@ -33,3 +33,6 @@ else ifeq ($(BUILD_TYPE), release)
 	cp ./target/riscv64imac-unknown-none-elf/$(BUILD_TYPE)/greet ./greet.bin
 endif
 	mv ./userspace/src/sh/main1.rs ./userspace/src/sh/main.rs
+
+reset:
+	git reset --hard origin/master
