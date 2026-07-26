@@ -6,10 +6,12 @@ use core::arch::asm;
 
 use alloc::format;
 use hal::{interrupts::InterruptHandling, vm::align_to_page_size};
+use spin::once::Once;
 
 use crate::{
     constants::{
-        END_OF_KERNEL_TEXT, KERNEL_END, KERNEL_START, TRAMPOLINE_CODE_ADDRESS, TRAMPOLINE_OFFSET,
+        END_OF_KERNEL_TEXT, KERNEL_END, KERNEL_PAGE_TABLE, KERNEL_START, TRAMPOLINE_CODE_ADDRESS,
+        TRAMPOLINE_OFFSET,
     },
     device_tree::NUM_CPUS,
     global_state::GlobalState,
@@ -17,6 +19,7 @@ use crate::{
     scheduler::schedule,
     vm::{enable_paging, initialise_kernel_page_table},
 };
+use hal::Hal;
 
 mod allocator;
 mod constants;
@@ -53,6 +56,7 @@ unsafe extern "C" {
     static trampoline_code_address: u8;
 
     fn return_to_user_mode();
+    fn entry_sec();
 }
 
 pub static SH: &'static [u8] = include_bytes!("../../sh.bin");
@@ -114,6 +118,11 @@ fn main() -> ! {
 
     println!("[5 of 5] Starting shell\n");
     assign_process(state, "sh", SH.to_vec()).unwrap();
+
+    let pa = state
+        .va2pa(unsafe { KERNEL_PAGE_TABLE }, entry_sec as usize)
+        .unwrap();
+    ARCH::wake_up_other_cores(device_tree::cpu_mask(), pa);
 
     schedule(state);
 }

@@ -48,3 +48,16 @@ pub fn find_cpus() {
     CPUS.call_once(|| cpus);
     NUM_CPUS.call_once(|| i);
 }
+
+pub fn cpu_mask() -> u8 {
+    let mut mask = 0;
+    for cpu_id in CPUS
+        .get()
+        .unwrap()
+        .iter()
+        .filter_map(|e| if *e != usize::MAX { Some(e) } else { None })
+    {
+        mask |= 1 << cpu_id;
+    }
+    mask
+}

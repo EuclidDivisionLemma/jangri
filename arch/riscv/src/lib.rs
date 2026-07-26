@@ -35,12 +35,13 @@ global_asm!(
     r#"
     .section .text.entry
     .global entry
+    .global entry_sec
     entry:
         la sp, stack_top
         j main
 
-    loop:
-        j loop
+    entry_sec:
+        j entry_sec
     "#
 );
 
@@ -100,5 +101,20 @@ impl Hal<vm::PageTableEntry> for Riscv {
             );
         }
         unreachable!();
+    }
+
+    fn wake_up_other_cores(cores: u8, start_addr: usize) {
+        for i in 0..8 {
+            if cores & 1 << i == 1 {
+                unsafe {
+                    asm!("li a7, 0x48534D",
+                        "li a6, 0",
+                        "mv a0, {}",
+                        "mv a1, {}",
+                        in(reg) i as usize,
+                        in(reg) start_addr)
+                }
+            }
+        }
     }
 }

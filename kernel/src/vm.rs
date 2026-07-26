@@ -4,6 +4,7 @@ use crate::{
         END_OF_KERNEL_TEXT, KERNEL_PAGE_TABLE, KERNEL_START, MAXIMUM_PROCESS, PLIC, PLIC_SIZE,
         RAM_STOP, TRAMPOLINE_CODE_ADDRESS, UART0,
     },
+    device_tree::NUM_CPUS,
     global_state::GlobalState,
 };
 use hal::constants::{PAGE_SIZE, TRAMPOLINE};
