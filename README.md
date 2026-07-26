@@ -1,6 +1,6 @@
 A simple xv6-style kernel.
 
-There are two userspace programs `sh` and `greet`. The `sh` program simply runs an infinite loop waiting for a prompt. The valid prompts currently are `about`, `echo` and the name of the command `greet`. The first two are shell commands (i.e no process is spawned), while `greet` is a seperate executable program which does nothing but print a greeting message.
+There are two userspace programs `sh` and `greet`. The `sh` program simply runs an infinite loop waiting for a prompt. The valid prompts currently are `about`, `echo`, `shutdown` and the name of the command `greet`. The first three are shell commands (i.e no process is spawned), while `greet` is a seperate executable program which does nothing but print a greeting message.
 
 # Repo Organisation
 
@@ -22,3 +22,4 @@ There are two userspace programs `sh` and `greet`. The `sh` program simply runs 
 
 * Install `qemu` and the Rust Risc-V toolchain.
 * Run `make` in the root directory of this project.
+* Switch to `serial0`
