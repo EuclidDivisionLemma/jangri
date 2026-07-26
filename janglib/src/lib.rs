@@ -40,6 +40,7 @@ pub enum Syscall {
     /// name start addr, name length, executable start, executable length, wait
     Spawn(usize, usize, usize, usize, bool),
     Yield,
+    Shutdown,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -159,6 +160,10 @@ macro_rules! make_syscall {
             }
         }
     };
+
+    (Syscall::Shutdown) => {
+        hal::interrupts::make_syscall();
+    };
 }
 
 pub fn exit(status: Result<usize>) -> ! {
@@ -183,6 +188,12 @@ pub fn spawn(name: &str, executable: &[u8], wait: bool) -> Result<usize> {
 pub fn r#yield() {
     write_syscall(Syscall::Yield);
     make_syscall!(Syscall::Yield);
+}
+
+pub fn shutdown() -> ! {
+    write_syscall(Syscall::Shutdown);
+    make_syscall!(Syscall::Shutdown);
+    unreachable!();
 }
 
 #[cfg(feature = "user")]

@@ -23,6 +23,12 @@ fn process(input: String) {
         println!("{}", ABOUT);
     } else if *parts.get(0).unwrap() == "greet" {
         janglib::spawn("greet", MATHS, true).unwrap();
+    } else if *parts.get(0).unwrap() == "shutdown" {
+        janglib::io::write("Are you sure [Press any key to cancel/Y to proceed]: ");
+        let s = janglib::io::read();
+        if s == "y" || s == "Y" {
+            janglib::shutdown();
+        }
     } else {
         println!("Unrecognised command: {}", *parts.get(0).unwrap());
     }

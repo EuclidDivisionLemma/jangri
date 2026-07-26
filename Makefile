@@ -2,7 +2,10 @@
 BUILD_TYPE=debug
 
 make: build
-	cd kernel && cargo run
+	qemu-system-riscv64 -machine virt -bios default -m 4096 -smp 1 -kernel ./target/riscv64imac-unknown-none-elf/$(BUILD_TYPE)/jangri
+
+debug: build
+	qemu-system-riscv64 -machine virt -bios default -m 4096 -smp 1 -kernel ./target/riscv64imac-unknown-none-elf/$(BUILD_TYPE)/jangri -s -S
 
 build: greet sh
 	cd kernel && cargo build

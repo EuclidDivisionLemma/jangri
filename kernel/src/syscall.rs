@@ -2,6 +2,7 @@ use core::{arch::asm, ffi::c_int, fmt::Debug, mem, ptr::write_volatile, slice};
 
 use alloc::{boxed::Box, format, string::ToString, sync::Arc, vec::Vec};
 use hal::{
+    Hal,
     constants::{KUCOM_PAGE, PAGE_SIZE, STACK_GUARD},
     error::{Error, Result},
     interrupts::InterruptHandling,
@@ -103,6 +104,12 @@ pub fn handle(state: &'static GlobalState) {
             Syscall::Yield => {
                 yield_cpu(state);
                 SyscallInfo::SyscallResult(SyscallResult::Yield)
+            }
+            Syscall::Shutdown => {
+                unsafe {
+                    asm!("nop");
+                }
+                ARCH::shutdown()
             }
         }
     };
