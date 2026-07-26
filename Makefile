@@ -1,11 +1,12 @@
 # BUILD_TYPE should be debug or release
 BUILD_TYPE=debug
+NUM_CPUS=4
 
 make: build
-	qemu-system-riscv64 -machine virt -bios default -m 4096 -smp 1 -kernel ./target/riscv64imac-unknown-none-elf/$(BUILD_TYPE)/jangri
+	qemu-system-riscv64 -machine virt -bios default -m 4096 -smp $(NUM_CPUS) -kernel ./target/riscv64imac-unknown-none-elf/$(BUILD_TYPE)/jangri
 
 debug: build
-	qemu-system-riscv64 -machine virt -bios default -m 4096 -smp 1 -kernel ./target/riscv64imac-unknown-none-elf/$(BUILD_TYPE)/jangri -s -S
+	qemu-system-riscv64 -machine virt -bios default -m 4096 -smp $(NUM_CPUS) -kernel ./target/riscv64imac-unknown-none-elf/$(BUILD_TYPE)/jangri -s -S
 
 build: greet sh
 	cd kernel && cargo build
