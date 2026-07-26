@@ -39,3 +39,6 @@ endif
 
 reset:
 	git reset --hard origin/master
+
+connect:
+	gdb-multiarch ./target/riscv64imac-unknown-none-elf/$(BUILD_TYPE)/jangri

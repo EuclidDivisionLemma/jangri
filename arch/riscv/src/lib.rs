@@ -91,7 +91,13 @@ impl Hal<vm::PageTableEntry> for Riscv {
 
     fn shutdown() -> ! {
         unsafe {
-            asm!("li a7, 0x53525354", "li a6, 0", "li a1, 0", "ecall");
+            asm!(
+                "li a7, 0x53525354",
+                "li a6, 0",
+                "li a0, 0",
+                "li a1, 1",
+                "ecall"
+            );
         }
         unreachable!();
     }
