@@ -163,6 +163,7 @@ fn test_allocator() {
     let one_hundred_twenty_eight_pages = allocator.allocate(128 * PAGE_SIZE).unwrap() as *mut usize;
     let thirty_two_pages = allocator.allocate(32 * PAGE_SIZE).unwrap() as *mut usize;
     let eight_pages = allocator.allocate(8 * PAGE_SIZE).unwrap() as *mut usize;
+    let t = allocator.allocate(20).unwrap();
     let another_four_pages = allocator.allocate(4 * PAGE_SIZE).unwrap() as *mut usize;
 
     unsafe {
