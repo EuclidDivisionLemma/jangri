@@ -1,6 +1,6 @@
 # BUILD_TYPE should be debug or release
 BUILD_TYPE=debug
-NUM_CPUS=4
+NUM_CPUS=1
 
 make: build
 	qemu-system-riscv64 -machine virt -bios default -m 4096 -smp $(NUM_CPUS) -kernel ./target/riscv64imac-unknown-none-elf/$(BUILD_TYPE)/jangri
