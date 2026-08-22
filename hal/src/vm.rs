@@ -49,12 +49,12 @@ pub trait PageTableEntry: Copy + Debug {
 }
 
 #[repr(transparent)]
-pub struct PageTable<T: PageTableEntry> {
-    entries: [T; NUMBER_OF_PAGE_TABLE_ENTRIES_PER_PAGE],
+pub struct PageTable<PTE: PageTableEntry> {
+    entries: [PTE; NUMBER_OF_PAGE_TABLE_ENTRIES_PER_PAGE],
 }
 
-impl<T: PageTableEntry> PageTable<T> {
-    pub fn get_entry(&mut self, index: usize) -> *mut T {
+impl<PTE: PageTableEntry> PageTable<PTE> {
+    pub fn get_entry(&mut self, index: usize) -> *mut PTE {
         &raw mut self.entries[index]
     }
 
@@ -70,13 +70,13 @@ impl<T: PageTableEntry> PageTable<T> {
         allocate: Arc<dyn Fn(usize) -> Result<usize>>,
         va: usize,
         should_allocate: bool,
-    ) -> Result<*mut T> {
+    ) -> Result<*mut PTE> {
         if va > MAX_VA {
             return Err(Error::VirtualAddressOverflow(va));
         }
 
         let mut page_table: *mut Self = &raw mut *self;
-        let mut page_table_entry: *mut T;
+        let mut page_table_entry: *mut PTE;
 
         for level in (1..NUMBER_OF_LEVELS).rev() {
             unsafe {
