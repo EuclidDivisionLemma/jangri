@@ -81,11 +81,8 @@ impl<PTE: PageTableEntry> PageTable<PTE> {
         for level in (1..NUMBER_OF_LEVELS).rev() {
             unsafe {
                 page_table_entry = (*page_table).get_entry((*page_table).level_to_index(level, va));
-                // address of page table entry
 
-                if (*page_table_entry).is_valid()
-                // if page table entry is valid
-                {
+                if (*page_table_entry).is_valid() {
                     page_table = (*page_table_entry).get_physical_address() as *mut Self;
                 } else {
                     if should_allocate {
